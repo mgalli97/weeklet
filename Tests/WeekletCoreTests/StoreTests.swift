@@ -139,11 +139,11 @@ final class StoreTests {
         checkEqual(state.menuSummary(at: now.addingTimeInterval(31)), "— h · 70% w")
     }
 
-    @Test func testEmptySessionShowsItsOwnResetBesideThePercentage() throws {
+    @Test func testLowSessionShowsItsOwnResetBesideThePercentage() throws {
         let weekly = try QuotaUsage(usedPercent: 30, resetsAt: now.addingTimeInterval(604800), fetchedAt: now)
-        let session = try QuotaUsage(usedPercent: 100, resetsAt: now.addingTimeInterval(7200), fetchedAt: now)
+        let session = try QuotaUsage(usedPercent: 81, resetsAt: now.addingTimeInterval(7200), fetchedAt: now)
         let state = ProviderState(provider: .claude, usage: UsageSnapshot(weekly: weekly, session: session))
-        checkEqual(state.menuSummary(at: now), "0% h (2h lft) · 70% w")
+        checkEqual(state.menuSummary(at: now), "19% h (2h lft) · 70% w")
         checkNil(state.menuResetCountdown(at: now))
     }
 
@@ -165,8 +165,10 @@ final class StoreTests {
         }
     }
 
-    @Test func testDisplayedZeroGetsACountdownButPositiveAvailabilityDoesNot() throws {
-        for (used, expected) in [(99.4, "1% w"), (99.6, "0% w (2h lft)"), (100, "0% w (2h lft)")] {
+    @Test func testDisplayedAvailabilityControlsTheTwentyPercentThreshold() throws {
+        for (used, expected) in [(79.4, "21% w"), (79.6, "20% w"), (80.4, "20% w"),
+                                 (80.6, "19% w (2h lft)"), (81, "19% w (2h lft)"),
+                                 (99.4, "1% w (2h lft)"), (99.6, "0% w (2h lft)"), (100, "0% w (2h lft)")] {
             let usage = try QuotaUsage(usedPercent: used, resetsAt: now.addingTimeInterval(7200), fetchedAt: now)
             let state = ProviderState(provider: .codex, usage: UsageSnapshot(weekly: usage))
             checkEqual(state.menuSummary(at: now), expected)

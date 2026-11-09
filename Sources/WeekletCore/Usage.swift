@@ -130,9 +130,9 @@ public struct ProviderState: Identifiable, Sendable, Equatable {
         return "\(window.remainingRounded)%"
     }
 
-    /// Only a displayed zero gains a countdown. Unknown or outdated resets stay hidden.
+    /// Only displayed availability below 20 percent gains a countdown. Unknown or outdated resets stay hidden.
     public func menuResetCountdown(at date: Date, period: QuotaPeriod = .weekly) -> String? {
-        guard let window = currentWindow(at: date, period: period), window.remainingRounded == 0,
+        guard let window = currentWindow(at: date, period: period), window.remainingRounded < 20,
               let reset = window.resetsAt else { return nil }
         let seconds = reset.timeIntervalSince(date)
         guard seconds.isFinite, seconds > 0, seconds < Double(Int.max) else { return nil }

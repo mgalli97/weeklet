@@ -26,7 +26,7 @@ Do not add token refresh, credential persistence, browser-cookie access, login a
 - Build and tests pass on macOS.
 - Percentage units, weekly-window selection, missing resets and stale values remain explicit.
 - Network and credential failures cannot leak server bodies or secrets.
-- No unnecessary wakeup loop or animation runs continuously while idle; countdown updates exist only while a fresh zero-allowance reset is displayed.
+- No unnecessary wakeup loop or animation runs continuously while idle; countdown updates exist only while a fresh reset below 20% available allowance is displayed.
 - New UI stays compact, accessible, English and dark.
 - Update screenshots and relevant documentation when behavior changes.
 
