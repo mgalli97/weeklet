@@ -13,7 +13,15 @@ enum WeekletMain {
                 for provider in Provider.allCases {
                     switch await service.fetch(provider, allowInteraction: arguments.contains("--allow-keychain")) {
                     case .success(let usage):
-                        print("\(provider.name): \(usage.usedRounded)% used, \(usage.remainingRounded)% available; reset \(usage.resetsAt?.ISO8601Format() ?? "unavailable")")
+                        if let weekly = usage.weekly {
+                            print("\(provider.name) weekly: \(weekly.usedRounded)% used, \(weekly.remainingRounded)% available; reset \(weekly.resetsAt?.ISO8601Format() ?? "unavailable")")
+                        } else {
+                            failed = true
+                            print("\(provider.name): No weekly quota reported")
+                        }
+                        if let session = usage.session {
+                            print("\(provider.name) 5-hour session: \(session.usedRounded)% used, \(session.remainingRounded)% available; reset \(session.resetsAt?.ISO8601Format() ?? "unavailable")")
+                        }
                     case .failure(let error):
                         failed = true
                         print("\(provider.name): \(error.message). \(error.detail(for: provider))")
@@ -32,7 +40,7 @@ enum WeekletMain {
             catch { fputs("Could not save sample preview.\n", stderr); exit(1) }
             return
         }
-        let delegate = AppDelegate(preview: arguments.contains("--preview"))
+        let delegate = AppDelegate(preview: arguments.contains("--preview"), showOnLaunch: arguments.contains("--show"))
         application.delegate = delegate
         withExtendedLifetime(delegate) { application.run() }
     }

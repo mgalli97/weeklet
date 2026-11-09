@@ -4,7 +4,7 @@ public enum Provider: String, CaseIterable, Sendable, Identifiable {
     case claude, codex
 
     public var id: String { rawValue }
-    public var name: String { self == .claude ? "Claude Code" : "ChatGPT Codex" }
+    public var name: String { self == .claude ? "Claude Code" : "Codex" }
     public var shortName: String { self == .claude ? "C" : "X" }
     public var signInHint: String {
         self == .claude ? "Sign in with Claude Code, then refresh." : "Sign in with Codex, then refresh."
@@ -18,7 +18,7 @@ public enum Provider: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
-public struct WeeklyUsage: Sendable, Equatable {
+public struct QuotaUsage: Sendable, Equatable {
     public let usedPercent: Double
     public let resetsAt: Date?
     public let fetchedAt: Date
@@ -39,6 +39,19 @@ public struct WeeklyUsage: Sendable, Equatable {
         now.timeIntervalSince(fetchedAt) < 600 && (resetsAt.map { $0 > now } ?? true)
     }
 }
+
+/// Windows stay separate: a session quota can never replace a weekly quota.
+public struct UsageSnapshot: Sendable, Equatable {
+    public let weekly: QuotaUsage?
+    public let session: QuotaUsage?
+
+    public init(weekly: QuotaUsage?, session: QuotaUsage? = nil) {
+        self.weekly = weekly
+        self.session = session
+    }
+}
+
+public enum QuotaPeriod: Sendable { case weekly, session }
 
 public enum UsageFailure: Error, Sendable, Equatable {
     case notSignedIn
@@ -98,26 +111,32 @@ public enum UsageFailure: Error, Sendable, Equatable {
 
 public struct ProviderState: Identifiable, Sendable, Equatable {
     public let provider: Provider
-    public var usage: WeeklyUsage?
+    public var usage: UsageSnapshot?
     public var failure: UsageFailure?
     public var isLoading: Bool
     public var lastAttempt: Date?
     public var retryAt: Date?
     public var id: Provider { provider }
 
-    public init(provider: Provider, usage: WeeklyUsage? = nil, failure: UsageFailure? = nil) {
+    public init(provider: Provider, usage: UsageSnapshot? = nil, failure: UsageFailure? = nil) {
         self.provider = provider
         self.usage = usage
         self.failure = failure
         isLoading = false
     }
 
-    public func menuValue(at date: Date) -> String {
-        guard failure == nil, let usage, usage.isFresh(at: date) else { return "—" }
-        return "\(usage.remainingRounded)%"
+    public func menuValue(at date: Date, period: QuotaPeriod = .weekly) -> String {
+        let window = period == .weekly ? usage?.weekly : usage?.session
+        guard failure == nil, let window, window.isFresh(at: date) else { return "—" }
+        return "\(window.remainingRounded)%"
     }
 
-    public mutating func receive(_ result: Result<WeeklyUsage, UsageFailure>, at now: Date) {
+    public func menuSummary(at date: Date) -> String {
+        let weekly = "\(menuValue(at: date)) w"
+        return provider == .claude ? "\(menuValue(at: date, period: .session)) h · \(weekly)" : weekly
+    }
+
+    public mutating func receive(_ result: Result<UsageSnapshot, UsageFailure>, at now: Date) {
         isLoading = false
         lastAttempt = now
         switch result {

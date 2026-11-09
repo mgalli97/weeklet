@@ -5,13 +5,14 @@ private enum Palette {
     static let background = Color(red: 0.075, green: 0.08, blue: 0.09)
     static let foreground = Color(red: 0.92, green: 0.93, blue: 0.95)
     static let secondary = Color(red: 0.57, green: 0.60, blue: 0.65)
-    static let claude = Color(red: 0.81, green: 0.60, blue: 0.47)
+    static let claude = Color(red: 217 / 255, green: 119 / 255, blue: 87 / 255)
     static let codex = Color(red: 0.59, green: 0.77, blue: 0.72)
 }
 
 struct PopoverView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var login: LoginItemController
+    @ObservedObject var activity: ActivityStore
     var preview = false
     var staticSnapshot = false
 
@@ -20,7 +21,7 @@ struct PopoverView: View {
             HStack {
                 Text("Weeklet").font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Text("WEEKLY").font(.system(size: 9, weight: .semibold, design: .rounded))
+                Text("USAGE").font(.system(size: 9, weight: .semibold, design: .rounded))
                     .tracking(1.5).foregroundStyle(Palette.secondary)
                 if staticSnapshot {
                     Image(systemName: "ellipsis").font(.system(size: 13, weight: .medium))
@@ -30,7 +31,7 @@ struct PopoverView: View {
             .padding(.bottom, 26)
 
             ForEach(Array(store.states.enumerated()), id: \.element.id) { index, state in
-                UsageRow(state: state)
+                UsageRow(state: state, activity: activity.states.first { $0.provider == state.provider }, pulse: activity.pulse)
                 if index < store.states.count - 1 { Color.white.opacity(0.07).frame(height: 1).padding(.vertical, 22) }
             }
 
@@ -87,14 +88,20 @@ struct PopoverView: View {
 
 private struct UsageRow: View {
     let state: ProviderState
+    let activity: ProviderActivity?
+    let pulse: Bool
     private var accent: Color { state.provider == .claude ? Palette.claude : Palette.codex }
     private var now: Date { Date() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: state.provider == .claude ? "asterisk" : "terminal")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(accent).frame(width: 16)
+                Image(nsImage: ProviderArtwork.image(for: state.provider))
+                    .resizable()
+                    .renderingMode(state.provider == .claude ? .template : .original)
+                    .scaledToFit()
+                    .foregroundStyle(state.provider == .claude ? Palette.claude : Palette.foreground)
+                    .frame(width: 20, height: 20)
                     .accessibilityHidden(true)
                 Text(state.provider.name).font(.system(size: 12, weight: .medium))
                 Spacer()
@@ -102,26 +109,38 @@ private struct UsageRow: View {
                     ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 12, height: 12)
                         .accessibilityLabel("Refreshing")
                 }
-                if let usage = state.usage {
-                    Text("\(usage.usedRounded)% used").font(.system(size: 11)).monospacedDigit()
+                if let usage = state.usage?.weekly {
+                    Text("\(usage.usedRounded)% used · weekly").font(.system(size: 10)).monospacedDigit()
                         .foregroundStyle(Palette.secondary)
                 } else {
                     Text("—").foregroundStyle(Palette.secondary)
                 }
             }
 
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.07))
-                    if let usage = state.usage {
-                        Capsule().fill(accent.opacity(isOutdated(usage) ? 0.35 : 0.9))
-                            .frame(width: geometry.size.width * usage.usedPercent / 100)
+            if let activity, activity.isWorking {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Circle().fill(accent).frame(width: 4, height: 4).opacity(pulse ? 1 : 0.35)
+                            .animation(.easeInOut(duration: 0.7), value: pulse)
+                        Text(activity.displayTitle).font(.system(size: 9, weight: .medium)).foregroundStyle(.white)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                    if activity.activeCount > 1 {
+                        ForEach(Array(activity.chats.prefix(3))) { chat in
+                            Text(chat.title ?? "Untitled chat").font(.system(size: 9))
+                                .foregroundStyle(.white).lineLimit(1).truncationMode(.tail)
+                        }
+                        if activity.activeCount > 3 {
+                            Text("+\(activity.activeCount - 3) more").font(.system(size: 8)).foregroundStyle(.white)
+                        }
                     }
                 }
+                .padding(.leading, 28)
+                .help(activity.activeCount > 1 ? "\(activity.activeCount) chats working" : "Working · " + activity.displayTitle)
+                .accessibilityLabel(activity.activeCount > 1 ? "\(activity.activeCount) chats working" : "Working on " + activity.displayTitle)
             }
-            .frame(height: 4)
-            .accessibilityLabel("Weekly usage")
-            .accessibilityValue(state.usage.map { "\($0.usedRounded) percent used" } ?? "Unavailable")
+
+            quotaBar(state.usage?.weekly, label: "Weekly usage")
 
             if let failure = state.failure {
                 HStack(alignment: .firstTextBaseline) {
@@ -138,7 +157,7 @@ private struct UsageRow: View {
                 if case .rateLimited(let until) = failure {
                     Text("Try after \(Self.time(until))").font(.system(size: 10)).foregroundStyle(Palette.secondary)
                 }
-            } else if let usage = state.usage {
+            } else if let usage = state.usage?.weekly {
                 HStack(alignment: .firstTextBaseline) {
                     Text(isOutdated(usage) ? "Awaiting refresh" : "\(usage.remainingRounded)% available")
                         .foregroundStyle(isOutdated(usage) ? Palette.secondary : accent)
@@ -148,21 +167,61 @@ private struct UsageRow: View {
                 .font(.system(size: 10)).monospacedDigit()
                 .help(updatedLabel(usage.fetchedAt))
             } else {
-                Text(state.isLoading ? "Checking usage…" : "Waiting for refresh")
+                Text(state.isLoading ? "Checking usage…" : state.usage == nil ? "Waiting for refresh" : "No weekly quota reported")
                     .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            }
+
+            if state.provider == .claude, let snapshot = state.usage {
+                if let session = snapshot.session {
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack {
+                            Text("5-hour session")
+                            Spacer()
+                            Text("\(session.usedRounded)% used").monospacedDigit()
+                        }
+                        .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                        quotaBar(session, label: "5-hour session usage")
+                        HStack {
+                            Text(isOutdated(session) ? "Awaiting refresh" : "\(session.remainingRounded)% available")
+                                .foregroundStyle(isOutdated(session) ? Palette.secondary : accent)
+                            Spacer()
+                            Text(resetLabel(session.resetsAt, session: true)).foregroundStyle(Palette.secondary)
+                        }
+                        .font(.system(size: 10)).monospacedDigit()
+                        .help(updatedLabel(session.fetchedAt))
+                    }
+                    .padding(.top, 6)
+                } else {
+                    Text("5-hour session unavailable").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                }
             }
         }
         .accessibilityElement(children: .contain)
     }
 
-    private func isOutdated(_ usage: WeeklyUsage) -> Bool { state.failure != nil || !usage.isFresh(at: now) }
+    private func isOutdated(_ usage: QuotaUsage) -> Bool { state.failure != nil || !usage.isFresh(at: now) }
 
-    private func resetLabel(_ date: Date?) -> String {
+    private func quotaBar(_ usage: QuotaUsage?, label: String) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.07))
+                if let usage {
+                    Capsule().fill(accent.opacity(isOutdated(usage) ? 0.35 : 0.9))
+                        .frame(width: geometry.size.width * usage.usedPercent / 100)
+                }
+            }
+        }
+        .frame(height: 4)
+        .accessibilityLabel(label)
+        .accessibilityValue(usage.map { "\($0.usedRounded) percent used" } ?? "Unavailable")
+    }
+
+    private func resetLabel(_ date: Date?, session: Bool = false) -> String {
         guard let date else { return "Reset unavailable" }
         if date <= now { return "Reset pending" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "EEE, MMM d · HH:mm"
+        formatter.dateFormat = session ? "HH:mm" : "EEE, MMM d · HH:mm"
         return "Resets " + formatter.string(from: date)
     }
 

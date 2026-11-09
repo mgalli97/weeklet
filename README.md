@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">Weeklet</h1>
 <p align="center"><strong>Your AI week, at a glance.</strong></p>
-<p align="center">A tiny native macOS menu bar app for Claude Code and ChatGPT Codex quotas.</p>
+<p align="center">A tiny native macOS menu bar app for Claude Code and Codex quotas.</p>
 <p align="center"><sub>macOS 14+ · Swift 6 · Always dark · Zero third-party runtime dependencies</sub></p>
 
 <p align="center">
@@ -16,14 +16,14 @@
 
 ---
 
-Weeklet keeps two numbers close: how much of your **weekly Claude Code and Codex quotas is still available**. No dashboard to babysit. No extra sign-in. Click the menu bar to see used and available percentages, a quiet progress bar and the next reset.
+Weeklet keeps two numbers close: how much of your **weekly Claude Code and Codex quotas is still available**. No dashboard to babysit. No extra sign-in. Click the menu bar to see used and available percentages, quiet progress bars and the next reset, plus Claude's separate five-hour session quota.
 
 **Weeklet** combines *week* and *applet*: a small place for your AI week.
 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/popover.png" width="328" alt="Weeklet dark popover: Claude Code 37 percent used, Codex 68 percent used, remaining quotas and reset dates">
+  <img src="docs/images/popover.png" width="328" alt="Weeklet dark popover: Claude Code 37 percent used, Codex 68 percent used, remaining quotas, reset dates and two sample working chats">
   &nbsp;&nbsp;
   <img src="docs/images/session-expired.png" width="328" alt="Weeklet with a Claude Code session-expired message while the Codex quota remains available">
 </p>
@@ -33,9 +33,10 @@ Weeklet keeps two numbers close: how much of your **weekly Claude Code and Codex
 
 | | |
 | --- | --- |
-| **One glance** | `C 63% · X 32%` in the menu bar. Available quota, in Claude / Codex order. |
-| **One small popover** | Used and available percentages, weekly bars and reset dates in local time. |
-| **A light footprint** | Native status item and SwiftUI. One five-minute refresh timer, no embedded browser. |
+| **One glance** | Official logos with available quotas: Claude `79% h · 63% w`, then Codex `32% w`. |
+| **One small popover** | Weekly quotas for both providers, plus Claude's five-hour session, with percentages and local reset times. |
+| **A light footprint** | Native status item and SwiftUI, cached local activity checks and no embedded browser. |
+| **Quiet activity** | A pulsing dot with rotating white `brew…` / `cook…` labels; counts for multiple chats and titles inside the popover. |
 | **Your existing sign-in** | Read-only access to the official tools' local credentials. No copied or renewed tokens. |
 | **Clear failure states** | Expired session, offline, denied access, rate limited or unavailable quota. No invented numbers. |
 | **Your choice at login** | Optional launch at login using Apple's ServiceManagement framework. |
@@ -73,9 +74,11 @@ Set `SIGNING_IDENTITY` to use your own signing identity. A raw `swift run` works
 
 Weeklet refreshes on launch, approximately every **five minutes** and after waking when due. Click Refresh or press **⌘R** for a manual check. Rapid clicks are throttled, and a provider's `Retry-After` is honored.
 
+The popover opens 8 points below its menu bar anchor, stays within the display's visible bounds, and resizes to fit the content. The popover and menu bar use the providers' actual shipped artwork. [Artwork provenance](docs/provider-artwork.md) records the original files and checksums; no logo downloads occur at runtime.
+
 A dash in the menu bar means the current quota is unavailable. On a network failure, the popover may keep a clearly marked **Last known** value. Values become outdated after ten minutes or when their reset passes. Weeklet never assumes a missing quota is zero or unlimited, or that a reset has already restored your allowance.
 
-These are the **all-model weekly subscription quotas**. Individual models, code review, credits and ChatGPT web messages can have separate limits. Weeklet does not combine those buckets.
+The menu bar shows Claude's **five-hour session** (`h`) and **weekly quota** (`w`), followed by Codex's weekly quota (`w`). All percentages mean available allowance. The popover shows both Claude windows and their reset times. A compact white verb beside an active provider rotates through `think…`, `brew…`, `cook…`, `craft…`, `pond…` and `bake…`. Multiple active chats add a count, such as `2 brew…`. Titles appear inside the popover; the pulse stops when work ends. [Activity details and limits](docs/local-activity.md) explain the local, read-only signals. These windows are never combined: a session reaching its limit does not mean the weekly quota is exhausted. A missing session is marked unavailable, never assumed to be zero. Individual models, code review, credits and ChatGPT web messages can have other limits.
 
 ## Private, by construction
 
@@ -91,15 +94,18 @@ Read the precise [credential locations and privacy boundaries](docs/privacy.md) 
 
 ## Verification status
 
-The optimized Apple Silicon app builds on **macOS 26.7.1 with Swift 6.3.3**, using standalone Command Line Tools. **38 isolated tests pass** across contracts, credentials, transport behavior and refresh state.
+The optimized Apple Silicon app builds on **macOS 26.7.1 with Swift 6.3.3**, using standalone Command Line Tools. **66 isolated tests pass** across contracts, credentials, transport behavior and refresh state.
 
-A real Codex usage request succeeded. The existing Claude credential was expired, so a successful authenticated Claude response remains unverified. Its parsers are covered by synthetic fixtures and provider contract observations. Interactive popover behavior, login-item registration and Intel execution still need manual verification. See the full [validation record](docs/validation.md).
+Real read-only usage requests succeeded for both Claude Code and Codex. The existing Claude credential initially expired; after renewing it in the official tool, the compiled app successfully reported its weekly quota without changing or refreshing any token itself. The real popover was inspected with both live quotas. Login-item registration, keyboard and VoiceOver behavior, and Intel execution still need manual verification. See the full [validation record](docs/validation.md).
 
 Provider usage endpoints are **internal contracts**, not stable public APIs. The app reports an explicit error if a provider changes or rejects them. See [contract evidence](docs/provider-contracts.md).
 
 ## Preview and diagnostics
 
 ```sh
+# Open the actual app and its popover with real usage.
+open "build/Weeklet.app" --args --show
+
 # Sample data only; no credential reads or provider requests.
 open "build/Weeklet.app" --args --preview
 
@@ -115,6 +121,8 @@ open "build/Weeklet.app" --args --preview
 
 `--check` exits 0 only when both providers report a weekly quota. `--snapshot` always uses sample data; add `--sample-errors` to preview the expired-session state. Never pass tokens as command-line arguments.
 
+`--show` opens the real popover and requests a foreground refresh, which may show macOS's Keychain access dialog. Reopening an already running app also shows its popover. Ordinary background refresh remains noninteractive.
+
 ## Inside Weeklet
 
 SwiftUI + AppKit is a better fit for this Mac-only utility than Rust/Tauri: native status-item, popover, Keychain and login-item APIs, without an embedded browser or cross-language bridge. The application code was written from scratch; no competitor implementation was copied.
@@ -127,5 +135,7 @@ SwiftUI + AppKit is a better fit for this Mac-only utility than Rust/Tauri: nati
 | [Validation](docs/validation.md) | Build, tests, live checks and remaining manual verification |
 | [Contributing](CONTRIBUTING.md) | Local workflow, fixture rules and review expectations |
 | [Security](SECURITY.md) | Threat boundaries and private reporting guidance |
+| [Local activity](docs/local-activity.md) | Lifecycle signals, short titles, privacy and resource limits |
+| [Provider artwork](docs/provider-artwork.md) | Official logo sources, checksums and rendering |
 
 A [manually triggered macOS workflow](.github/workflows/verify.yml) is included for repeatable verification. It needs no provider credentials and does not automatically consume hosted macOS runner minutes on each push.

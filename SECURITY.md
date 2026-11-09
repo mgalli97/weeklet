@@ -14,7 +14,7 @@ Report suspected credential disclosure or authentication-boundary issues private
 - Redirects are refused, including same-host redirects. The default system TLS trust policy remains enabled.
 - Requests use an ephemeral session without cookies, URL cache or credential storage. Responses are bounded to 1 MiB.
 - Background reads disallow Keychain interaction. A manual refresh may ask macOS to grant a single read. The app does not change an item's access controls.
-- Tokens, account IDs, server response bodies and emails are never included in app logs, errors, screenshots or persisted app state.
+- Tokens, account IDs and provider response bodies are never included in app logs, errors or persisted app state. Activity titles are intentionally shown only in local UI; documentation screenshots use synthetic titles.
 - The app has no third-party runtime packages, backend, analytics, automatic updater or embedded browser.
 
 ## Limitations

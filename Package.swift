@@ -9,8 +9,8 @@ let package = Package(
         .library(name: "WeekletCore", targets: ["WeekletCore"])
     ],
     targets: [
-        .target(name: "WeekletCore"),
-        .executableTarget(name: "Weeklet", dependencies: ["WeekletCore"]),
+        .target(name: "WeekletCore", linkerSettings: [.linkedLibrary("sqlite3")]),
+        .executableTarget(name: "Weeklet", dependencies: ["WeekletCore"], resources: [.process("Assets")]),
         .testTarget(name: "WeekletCoreTests", dependencies: ["WeekletCore"])
     ],
     swiftLanguageModes: [.v6]

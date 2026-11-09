@@ -77,7 +77,7 @@ public final class FixedEndpointTransport: UsageTransport, Sendable {
 }
 
 public protocol UsageFetching: Sendable {
-    func fetch(_ provider: Provider, allowInteraction: Bool) async -> Result<WeeklyUsage, UsageFailure>
+    func fetch(_ provider: Provider, allowInteraction: Bool) async -> Result<UsageSnapshot, UsageFailure>
 }
 
 public struct UsageService: UsageFetching, Sendable {
@@ -90,7 +90,7 @@ public struct UsageService: UsageFetching, Sendable {
         self.transport = transport
     }
 
-    public func fetch(_ provider: Provider, allowInteraction: Bool = false) async -> Result<WeeklyUsage, UsageFailure> {
+    public func fetch(_ provider: Provider, allowInteraction: Bool = false) async -> Result<UsageSnapshot, UsageFailure> {
         do {
             let credential = try await credentials.read(for: provider, allowInteraction: allowInteraction)
             try Task.checkCancellation()

@@ -1,6 +1,6 @@
 # Contributing to Weeklet
 
-Keep the product small: a Mac-only menu bar utility, one weekly quota per provider, English text and an always-dark popover.
+Keep the product small: a Mac-only menu bar utility, weekly quotas plus Claude's session quota, English text and an always-dark popover.
 
 ## Local workflow
 

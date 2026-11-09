@@ -17,7 +17,7 @@ flowchart LR
     Service --> Transport[FixedEndpointTransport]
     Transport -->|HTTPS GET| Provider[Anthropic / OpenAI usage]
     Provider --> Parse[ProviderContracts]
-    Parse --> Usage[WeeklyUsage]
+    Parse --> Usage[UsageSnapshot: weekly / session]
     Usage --> Store
     Store --> UI[Status item / dark popover]
 ```
@@ -26,22 +26,24 @@ flowchart LR
 
 | Component | Responsibility |
 | --- | --- |
-| `WeekletCore/Usage.swift` | Normalized quota, safe failure messages and freshness rules |
+| `WeekletCore/Usage.swift` | Independent quota windows, safe failure messages and freshness rules |
 | `Credentials.swift` | Read-only file and Keychain access; transient access-token parsing |
-| `ProviderContracts.swift` | Isolated provider wire formats and all-model weekly selection |
+| `ProviderContracts.swift` | Isolated provider wire formats and weekly and Claude session selection |
 | `UsageService.swift` | Fixed request construction, bounded transport and sanitized HTTP handling |
 | `UsageStore.swift` | Independent concurrent refreshes, coalescing, throttling and backoff |
 | `Weeklet/AppDelegate.swift` | Accessory application, `NSStatusItem`, `NSPopover`, wake notification |
 | `PopoverView.swift` | Compact English-only SwiftUI presentation |
 | `LoginItemController.swift` | Optional registration through `SMAppService.mainApp` |
+| `Activity.swift`, `LocalActivityReader.swift`, `ActivityStore.swift` | Local read-only lifecycle detection, short titles, cached file tails and conditional pulse |
+| `ProviderArtwork.swift` | Local provider-owned logos, popover images and native menu bar attachments |
 
 ## Concurrency and resources
 
 The UI model is main-actor isolated. Credential reads run on a separate actor; the transport uses asynchronous URLSession APIs. Providers complete independently in a structured task group. Overlapping refreshes are coalesced, rapid manual clicks are throttled, and HTTP `Retry-After` applies to both manual and automatic attempts.
 
-There is one five-minute timer with 20 seconds of tolerance. It does not wake a sleeping Mac. A wake notification checks whether a refresh is due. There is no filesystem polling, embedded web runtime, conversation parsing, helper process or persistent network connection. Spinners appear only while a refresh is in flight.
+Quota refresh uses one five-minute timer with 20 seconds of tolerance, plus a wake notification when a refresh is due. A separate bounded local-activity check runs every five seconds, caching index and file modification stamps. A pulse timer runs only while work is active. There is no embedded web runtime, helper process or persistent network connection. Timers do not wake a sleeping Mac; spinners appear only during refresh.
 
-Usage lives in memory. On network failure, the popover can retain a clearly marked last known value; the menu bar shows a dash. Credential failures clear the prior value. A fetched value is also outdated after ten minutes or after its reported reset. A missing weekly quota is never interpreted as zero use or unlimited access.
+Usage lives in memory. On network failure, the popover can retain a clearly marked last known value; the menu bar shows a dash. Credential failures clear the prior value. A fetched value is also outdated after ten minutes or after its reported reset. A missing weekly quota is never interpreted as zero use or unlimited access. `UsageSnapshot` keeps optional weekly and session `QuotaUsage` values separate; freshness is evaluated per window. The status item labels Claude's session and weekly availability with `h` and `w`, while Codex shows `w`. Missing or stale windows have independent dashes. Both Claude values come from the same HTTPS response, adding no extra polling or requests.
 
 ## Preview rendering
 
@@ -50,3 +52,11 @@ Usage lives in memory. On network failure, the popover can retain a clearly mark
 ## Build and distribution
 
 SwiftPM is the source of truth. The build script assembles the `.app`, includes `LSUIElement` metadata and an original icon, and applies a local ad-hoc signature. There is no Dock icon or normal app window. A Developer ID signature and notarization are separate distribution steps and are not supplied by this repository.
+
+Official provider PNGs are processed into the SwiftPM resource bundle and embedded inside the application's Resources directory. The loader resolves the embedded bundle before the development fallback, so an installed app does not depend on the source tree or build cache. `--show` opens the real popover and initiates a foreground refresh; a subsequent reopen shows the existing popover without starting another instance.
+
+## Popover placement
+
+The native hosting controller publishes its intrinsic and preferred content sizes. Weeklet measures the full SwiftUI content before showing the popover and after data updates. The popover is positioned 8 points below the status button's screen-space anchor and clamped horizontally and vertically to the current screen's visible frame. A resize observation reapplies the placement as window content changes; no layout polling timer is added.
+
+Local activity uses the system SQLite library and existing transcript metadata. See [local activity](local-activity.md) for source contracts, bounded reads, stale-session handling and privacy limits.

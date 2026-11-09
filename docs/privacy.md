@@ -17,3 +17,7 @@ Requests are `GET` only, to two fixed HTTPS URLs. Every redirect is refused, inc
 ## Provider contract boundaries
 
 See [provider contracts](provider-contracts.md) for exact request and response shapes.
+
+## Local chat activity
+
+An active chat's short title is intentionally displayed locally. Existing Codex SQLite metadata and bounded Claude Code/Codex transcript tails supply lifecycle signals. No hooks or helper processes are installed, and no title, message or activity history is transmitted or persisted. The indicator is best-effort and independent of provider quota requests. See [local activity](local-activity.md) for exact read boundaries and limitations.

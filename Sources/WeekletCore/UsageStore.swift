@@ -20,7 +20,7 @@ public final class UsageStore: ObservableObject {
     }
 
     public var menuTitle: String {
-        states.map { "\($0.provider.shortName) \($0.menuValue(at: clock()))" }.joined(separator: "  ·  ")
+        states.map { "\($0.provider.shortName) \($0.menuSummary(at: clock()))" }.joined(separator: "  |  ")
     }
 
     public func start() {
@@ -59,7 +59,7 @@ public final class UsageStore: ObservableObject {
         for index in states.indices where eligible.contains(states[index].provider) { states[index].isLoading = true }
         let service = service
         refreshTask = Task { [weak self] in
-            await withTaskGroup(of: (Provider, Result<WeeklyUsage, UsageFailure>).self) { group in
+            await withTaskGroup(of: (Provider, Result<UsageSnapshot, UsageFailure>).self) { group in
                 for provider in eligible {
                     group.addTask { (provider, await service.fetch(provider, allowInteraction: manual)) }
                 }

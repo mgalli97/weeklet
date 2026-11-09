@@ -4,8 +4,11 @@ import Testing
 
 final class ContractTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
-    private func parse(_ text: String, _ provider: Provider) throws -> WeeklyUsage {
-        try ProviderContracts.parse(Data(text.utf8), for: provider, now: now)
+    private func parse(_ text: String, _ provider: Provider) throws -> QuotaUsage {
+        guard let weekly = try ProviderContracts.parse(Data(text.utf8), for: provider, now: now).weekly else {
+            throw UsageFailure.weeklyUnavailable
+        }
+        return weekly
     }
     private func expectFailure(_ text: String, _ provider: Provider, _ expected: UsageFailure) {
         checkThrowsError(try parse(text, provider)) { checkEqual($0 as? UsageFailure, expected) }
@@ -75,14 +78,56 @@ final class ContractTests {
         for text in ["not json", #"{"seven_day":{"utilization":"60"}}"#, #"{"seven_day":{"utilization":-1}}"#, #"{"seven_day":{"utilization":101}}"#] {
             expectFailure(text, .claude, .invalidResponse)
         }
-        checkThrowsError(try WeeklyUsage(usedPercent: .nan, resetsAt: nil, fetchedAt: now))
-        checkThrowsError(try WeeklyUsage(usedPercent: .infinity, resetsAt: nil, fetchedAt: now))
+        checkThrowsError(try QuotaUsage(usedPercent: .nan, resetsAt: nil, fetchedAt: now))
+        checkThrowsError(try QuotaUsage(usedPercent: .infinity, resetsAt: nil, fetchedAt: now))
     }
 
     @Test func testRoundingKeepsTotalsAtOneHundred() throws {
         for percent in [0.0, 0.5, 23.5, 99.5, 100] {
-            let value = try WeeklyUsage(usedPercent: percent, resetsAt: nil, fetchedAt: now)
+            let value = try QuotaUsage(usedPercent: percent, resetsAt: nil, fetchedAt: now)
             checkEqual(value.usedRounded + value.remainingRounded, 100)
+        }
+    }
+
+    @Test func testClaudeLegacySessionStaysSeparateFromWeek() throws {
+        let data = Data(#"{"seven_day":{"utilization":5,"resets_at":"2026-11-16T13:00:00Z"},"five_hour":{"utilization":42,"resets_at":"2026-11-09T20:00:00Z"}}"#.utf8)
+        let value = try ProviderContracts.parse(data, for: .claude, now: now)
+        checkEqual(value.weekly?.usedPercent, 5)
+        checkEqual(value.session?.usedPercent, 42)
+        checkEqual(value.session?.remainingRounded, 58)
+        checkEqual(value.session?.resetsAt, ISO8601DateFormatter().date(from: "2026-11-09T20:00:00Z"))
+    }
+
+    @Test func testClaudeStructuredSessionIsSelectedByKind() throws {
+        let data = Data(#"{"limits":[{"kind":"weekly_scoped","percent":99},{"kind":"weekly_all","percent":5},{"kind":"session","percent":42,"resets_at":"2026-11-09T20:00:00Z"}]}"#.utf8)
+        let value = try ProviderContracts.parse(data, for: .claude, now: now)
+        checkEqual(value.weekly?.usedPercent, 5)
+        checkEqual(value.session?.usedPercent, 42)
+    }
+
+    @Test func testSessionOnlyResponseNeverBecomesAWeeklyPercentage() throws {
+        let data = Data(#"{"seven_day":null,"five_hour":{"utilization":42}}"#.utf8)
+        let value = try ProviderContracts.parse(data, for: .claude, now: now)
+        checkNil(value.weekly)
+        checkEqual(value.session?.usedPercent, 42)
+        checkEqual(ProviderState(provider: .claude, usage: value).menuValue(at: now), "—")
+    }
+
+    @Test func testAbsentSessionIsUnknownRatherThanZero() throws {
+        for text in [#"{"seven_day":{"utilization":5},"five_hour":null}"#,
+                     #"{"limits":[{"kind":"weekly_all","percent":5}]}"#] {
+            let value = try ProviderContracts.parse(Data(text.utf8), for: .claude, now: now)
+            checkEqual(value.weekly?.usedPercent, 5)
+            checkNil(value.session)
+        }
+    }
+
+    @Test func testAmbiguousOrInvalidSessionFailsClosed() {
+        for text in [#"{"limits":[{"kind":"weekly_all","percent":5},{"kind":"session","percent":10},{"kind":"session","percent":20}]}"#,
+                     #"{"seven_day":{"utilization":5},"five_hour":{"utilization":101}}"#] {
+            checkThrowsError(try ProviderContracts.parse(Data(text.utf8), for: .claude, now: now)) {
+                checkEqual($0 as? UsageFailure, .invalidResponse)
+            }
         }
     }
 }

@@ -16,10 +16,16 @@ The installed Codex CLI contains the `/wham/usage` endpoint family, `Codex Auth`
 
 A live `GET https://chatgpt.com/backend-api/wham/usage` using the existing Codex subscription access token returned **HTTP 200**. Its `rate_limit.primary_window.limit_window_seconds` was **604800** and `secondary_window` was null. `used_percent` and `reset_at` were numeric. This directly established why selecting the secondary window unconditionally would be incorrect. Personal response fields and values were not saved as fixtures.
 
-A live `GET https://api.anthropic.com/api/oauth/usage` using the existing Claude Code Keychain item returned **HTTP 401**. The item was readable, but that credential was not valid for this request. No refresh was attempted. A successful authenticated Claude response could therefore not be verified in this environment. Its supported response shapes are based on the official installed CLI's contract identifiers and provider issue observations, and remain covered by synthetic tests rather than a successful live response.
+A live `GET https://api.anthropic.com/api/oauth/usage` initially returned **HTTP 401** for the existing Claude Code Keychain credential. No refresh was attempted by Weeklet. After the user renewed the session in the official Claude Code tool, a second check through the compiled application's production transport and parser successfully reported the real weekly quota and reset date. Both providers are therefore verified with live read-only requests. Personal quota values and account fields are not saved as fixtures or published in this repository.
 
 The exact Keychain account derivation for Codex is supported in the implementation but was not exercised against a real Keychain-backed Codex account in this file-backed environment. Custom Claude Keychain names are deliberately unsupported until verified. No login item was enabled during development.
 
 ## Compatibility boundaries
 
 These HTTP endpoints are internal account metadata services. Public documentation does not promise third-party compatibility. The implementation does not interpret a missing quota as unlimited, use API billing credits as weekly usage, sum model buckets, infer reset dates, refresh tokens or follow a new endpoint. An unsupported response produces an explicit error until its contract is reviewed.
+
+## Claude five-hour session
+
+The same usage response supplies the session quota, so displaying it adds no new request or timer. Weeklet selects `limits[]` with `kind == "session"`, reading 0–100 `percent` and ISO 8601 `resets_at`; without the structured array, it reads legacy `five_hour.utilization` and `five_hour.resets_at`. Weekly and session values remain separate, labeled `w` and `h` in the menu bar.
+
+A subsequent read-only HTTP 200 probe verified that the current account response includes both `limits[]` and a `five_hour` object with numeric `utilization` and string `resets_at`. A missing session is unavailable; it is never synthesized as zero or substituted for the weekly quota. Some plans may not expose a five-hour limit. [Claude's official usage guide](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work) describes session and weekly limits as separate windows.

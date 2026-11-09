@@ -79,7 +79,7 @@ final class ServiceTests: @unchecked Sendable {
         let transport = TestTransport(body: #"{"seven_day":{"utilization":61,"resets_at":null}}"#)
         let result = await UsageService(credentials: TestCredentials(), transport: transport).fetch(.claude)
         guard case .success(let usage) = result else { return recordFailure("Expected weekly usage") }
-        checkEqual(usage.remainingRounded, 39)
+        checkEqual(usage.weekly?.remainingRounded, 39)
     }
 
     @Test func testHTTPFailuresAreSanitized() async {
