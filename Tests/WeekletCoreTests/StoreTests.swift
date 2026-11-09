@@ -138,4 +138,61 @@ final class StoreTests {
         let state = ProviderState(provider: .claude, usage: UsageSnapshot(weekly: weekly, session: session))
         checkEqual(state.menuSummary(at: now.addingTimeInterval(31)), "— h · 70% w")
     }
+
+    @Test func testEmptySessionShowsItsOwnResetBesideThePercentage() throws {
+        let weekly = try QuotaUsage(usedPercent: 30, resetsAt: now.addingTimeInterval(604800), fetchedAt: now)
+        let session = try QuotaUsage(usedPercent: 100, resetsAt: now.addingTimeInterval(7200), fetchedAt: now)
+        let state = ProviderState(provider: .claude, usage: UsageSnapshot(weekly: weekly, session: session))
+        checkEqual(state.menuSummary(at: now), "0% h (2h lft) · 70% w")
+        checkNil(state.menuResetCountdown(at: now))
+    }
+
+    @Test func testBothEmptyWindowsKeepTheirResetCountdownsSeparate() throws {
+        let weekly = try QuotaUsage(usedPercent: 100, resetsAt: now.addingTimeInterval(604800), fetchedAt: now)
+        let session = try QuotaUsage(usedPercent: 100, resetsAt: now.addingTimeInterval(1800), fetchedAt: now)
+        let snapshot = UsageSnapshot(weekly: weekly, session: session)
+        checkEqual(ProviderState(provider: .claude, usage: snapshot).menuSummary(at: now), "0% h (30m lft) · 0% w (168h lft)")
+        checkEqual(ProviderState(provider: .codex, usage: snapshot).menuSummary(at: now), "0% w (168h lft)")
+    }
+
+    @Test func testResetCountdownUsesShortUnitsAndNeverRoundsToZero() throws {
+        for (seconds, expected) in [(0.5, "<1m lft"), (59.9, "<1m lft"), (60, "1m lft"),
+                                    (61, "2m lft"), (3540, "59m lft"), (3599, "1h lft"),
+                                    (3600, "1h lft"), (3601, "2h lft"), (7200, "2h lft")] {
+            let usage = try QuotaUsage(usedPercent: 100, resetsAt: now.addingTimeInterval(seconds), fetchedAt: now)
+            let state = ProviderState(provider: .codex, usage: UsageSnapshot(weekly: usage))
+            checkEqual(state.menuResetCountdown(at: now), expected)
+        }
+    }
+
+    @Test func testDisplayedZeroGetsACountdownButPositiveAvailabilityDoesNot() throws {
+        for (used, expected) in [(99.4, "1% w"), (99.6, "0% w (2h lft)"), (100, "0% w (2h lft)")] {
+            let usage = try QuotaUsage(usedPercent: used, resetsAt: now.addingTimeInterval(7200), fetchedAt: now)
+            let state = ProviderState(provider: .codex, usage: UsageSnapshot(weekly: usage))
+            checkEqual(state.menuSummary(at: now), expected)
+        }
+    }
+
+    @Test func testUnknownFailedAndOutdatedResetsNeverShowACountdown() throws {
+        let unknown = try QuotaUsage(usedPercent: 100, resetsAt: nil, fetchedAt: now)
+        checkEqual(ProviderState(provider: .codex, usage: UsageSnapshot(weekly: unknown)).menuSummary(at: now), "0% w")
+        for (reset, fetched, failure) in [(now.addingTimeInterval(-1), now, nil),
+                                          (now.addingTimeInterval(7200), now.addingTimeInterval(-600), nil),
+                                          (now.addingTimeInterval(7200), now, UsageFailure.offline)] {
+            let usage = try QuotaUsage(usedPercent: 100, resetsAt: reset, fetchedAt: fetched)
+            let state = ProviderState(provider: .codex, usage: UsageSnapshot(weekly: usage), failure: failure)
+            checkNil(state.menuResetCountdown(at: now))
+            checkEqual(state.menuSummary(at: now), "— w")
+        }
+    }
+
+    @Test func testCountdownAdvancesLocallyAndDoesNotAssumeAllowanceAfterReset() throws {
+        let usage = try QuotaUsage(usedPercent: 100, resetsAt: now.addingTimeInterval(120), fetchedAt: now)
+        let state = ProviderState(provider: .codex, usage: UsageSnapshot(weekly: usage))
+        checkEqual(state.menuSummary(at: now), "0% w (2m lft)")
+        checkEqual(state.menuSummary(at: now.addingTimeInterval(60)), "0% w (1m lft)")
+        checkEqual(state.menuSummary(at: now.addingTimeInterval(61)), "0% w (<1m lft)")
+        checkEqual(state.menuSummary(at: now.addingTimeInterval(120)), "— w")
+        checkNil(state.menuResetCountdown(at: now.addingTimeInterval(120)))
+    }
 }

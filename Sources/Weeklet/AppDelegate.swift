@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let menuFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
     private var observation: AnyCancellable?
     private var activityObservation: AnyCancellable?
+    private var countdownTimer: Timer?
     private var lastActivityStates: [ProviderActivity] = []
     private var wakeObservation: NSObjectProtocol?
     private var popoverObservations: [NSObjectProtocol] = []
@@ -61,7 +62,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         wakeObservation = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.store.refreshIfDue() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.updateTitle(self.store.states)
+                self.store.refreshIfDue()
+            }
         }
         if !preview {
             // An explicitly opened foreground check may show macOS's Keychain dialog.
@@ -74,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func updateTitle(_ states: [ProviderState], activities: [ProviderActivity]? = nil, pulse: Bool? = nil, verb: ActivityVerb? = nil) {
         guard let button = statusItem?.button else { return }
+        let now = Date()
         let title = NSMutableAttributedString(string: "")
         let attributes: [NSAttributedString.Key: Any] = [
             .font: menuFont,
@@ -85,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             logo.image = ProviderArtwork.menuImage(for: state.provider, appearance: button.effectiveAppearance)
             logo.bounds = NSRect(x: 0, y: -4, width: 18, height: 18)
             title.append(NSAttributedString(attachment: logo))
-            title.append(NSAttributedString(string: " \(state.menuSummary(at: Date()))", attributes: attributes))
+            title.append(NSAttributedString(string: " \(state.menuSummary(at: now))", attributes: attributes))
             if let working = (activities ?? activity.states).first(where: { $0.provider == state.provider && $0.isWorking }) {
                 title.append(NSAttributedString(string: "  • ", attributes: [
                     .font: menuFont,
@@ -103,10 +109,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let names = state.chats.prefix(3).map { $0.title ?? "Untitled chat" }.joined(separator: ", ")
             return state.activeCount > 1 ? "\(state.provider.name): \(state.displayTitle) · \(names)" : "\(state.provider.name): \(state.displayTitle)"
         }
-        button.toolTip = (["Available · h: 5-hour session · w: weekly"] + working).joined(separator: "\n") + (preview ? " · Sample data" : "")
+        button.toolTip = (["Available · h: 5-hour session · w: weekly · lft: until reset"] + working).joined(separator: "\n") + (preview ? " · Sample data" : "")
         button.setAccessibilityLabel("Weeklet. " + states.map {
-            "\($0.provider.name): \($0.menuSummary(at: Date())) available"
+            "\($0.provider.name): \($0.menuSummary(at: now).replacingOccurrences(of: " lft", with: " left")) available"
         }.joined(separator: ". ") + (working.isEmpty ? "" : ". Working: " + working.joined(separator: ". ")))
+        updateCountdownTimer(states, at: now)
+    }
+
+    private func updateCountdownTimer(_ states: [ProviderState], at date: Date) {
+        let needed = !preview && states.contains {
+            $0.menuResetCountdown(at: date) != nil ||
+                ($0.provider == .claude && $0.menuResetCountdown(at: date, period: .session) != nil)
+        }
+        guard needed else {
+            countdownTimer?.invalidate()
+            countdownTimer = nil
+            return
+        }
+        guard countdownTimer == nil else { return }
+        // Reformat locally while a countdown is visible; provider polling remains every five minutes.
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.updateTitle(self.store.states)
+            }
+        }
+        timer.tolerance = 2
+        RunLoop.main.add(timer, forMode: .common)
+        countdownTimer = timer
     }
 
     @objc private func togglePopover() {
@@ -169,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        countdownTimer?.invalidate()
         store.stop()
         activity.stop()
         popoverObservations.forEach(NotificationCenter.default.removeObserver)

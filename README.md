@@ -80,6 +80,8 @@ A dash in the menu bar means the current quota is unavailable. On a network fail
 
 The menu bar shows Claude's **five-hour session** (`h`) and **weekly quota** (`w`), followed by Codex's weekly quota (`w`). All percentages mean available allowance. The popover shows both Claude windows and their reset times. A compact white verb beside an active provider rotates through `think…`, `brew…`, `cook…`, `craft…`, `pond…` and `bake…`. Multiple active chats add a count, such as `2 brew…`. Titles appear inside the popover; the pulse stops when work ends. [Activity details and limits](docs/local-activity.md) explain the local, read-only signals. These windows are never combined: a session reaching its limit does not mean the weekly quota is exhausted. A missing session is marked unavailable, never assumed to be zero. Individual models, code review, credits and ChatGPT web messages can have other limits.
 
+When a window displays **0% available**, its menu value gains a short reset countdown: `0% h (2h lft) · 70% w` or `0% w (45m lft)`. `lft` means time left until reset, using the same 11-point font as the percentages. Whole hours or minutes are rounded up; the final minute reads `<1m lft`. Even weekly resets use hours to keep the label compact. Each window uses its own reported reset. The countdown updates locally about once a minute only while visible, without additional provider requests. Unknown resets stay unlabelled; failed or outdated quotas show a dash. After the reported reset passes, Weeklet waits for fresh usage rather than assuming the allowance is restored. The popover retains the exact local reset date and time.
+
 ## Private, by construction
 
 - Reads an existing official-tool session from a narrowly scoped Keychain item or credential file.
@@ -94,7 +96,7 @@ Read the precise [credential locations and privacy boundaries](docs/privacy.md) 
 
 ## Verification status
 
-The optimized Apple Silicon app builds on **macOS 26.7.1 with Swift 6.3.3**, using standalone Command Line Tools. **66 isolated tests pass** across contracts, credentials, transport behavior and refresh state.
+The optimized Apple Silicon app builds on **macOS 26.7.1 with Swift 6.3.3**, using standalone Command Line Tools. **72 isolated tests pass** across contracts, credentials, transport behavior and refresh state.
 
 Real read-only usage requests succeeded for both Claude Code and Codex. The existing Claude credential initially expired; after renewing it in the official tool, the compiled app successfully reported its weekly quota without changing or refreshing any token itself. The real popover was inspected with both live quotas. Login-item registration, keyboard and VoiceOver behavior, and Intel execution still need manual verification. See the full [validation record](docs/validation.md).
 

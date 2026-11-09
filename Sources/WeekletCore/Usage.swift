@@ -126,14 +126,38 @@ public struct ProviderState: Identifiable, Sendable, Equatable {
     }
 
     public func menuValue(at date: Date, period: QuotaPeriod = .weekly) -> String {
-        let window = period == .weekly ? usage?.weekly : usage?.session
-        guard failure == nil, let window, window.isFresh(at: date) else { return "—" }
+        guard let window = currentWindow(at: date, period: period) else { return "—" }
         return "\(window.remainingRounded)%"
     }
 
+    /// Only a displayed zero gains a countdown. Unknown or outdated resets stay hidden.
+    public func menuResetCountdown(at date: Date, period: QuotaPeriod = .weekly) -> String? {
+        guard let window = currentWindow(at: date, period: period), window.remainingRounded == 0,
+              let reset = window.resetsAt else { return nil }
+        let seconds = reset.timeIntervalSince(date)
+        guard seconds.isFinite, seconds > 0, seconds < Double(Int.max) else { return nil }
+        if seconds < 60 { return "<1m lft" }
+        let minutes = Int(ceil(seconds / 60))
+        if minutes < 60 { return "\(minutes)m lft" }
+        // Whole hours keep even a weekly reset short; round up rather than promise an early reset.
+        return "\(Int(ceil(Double(minutes) / 60)))h lft"
+    }
+
     public func menuSummary(at date: Date) -> String {
-        let weekly = "\(menuValue(at: date)) w"
-        return provider == .claude ? "\(menuValue(at: date, period: .session)) h · \(weekly)" : weekly
+        let weekly = menuWindowSummary(at: date, period: .weekly)
+        return provider == .claude ? "\(menuWindowSummary(at: date, period: .session)) · \(weekly)" : weekly
+    }
+
+    private func menuWindowSummary(at date: Date, period: QuotaPeriod) -> String {
+        let value = "\(menuValue(at: date, period: period)) \(period == .session ? "h" : "w")"
+        guard let countdown = menuResetCountdown(at: date, period: period) else { return value }
+        return "\(value) (\(countdown))"
+    }
+
+    private func currentWindow(at date: Date, period: QuotaPeriod) -> QuotaUsage? {
+        let window = period == .weekly ? usage?.weekly : usage?.session
+        guard failure == nil, let window, window.isFresh(at: date) else { return nil }
+        return window
     }
 
     public mutating func receive(_ result: Result<UsageSnapshot, UsageFailure>, at now: Date) {
