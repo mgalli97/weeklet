@@ -1,0 +1,37 @@
+name: Verify macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: swift --version
+      - name: Run isolated tests
+        run: ./scripts/test.sh
+      - name: Build native application
+        run: ./scripts/build.sh
+      - name: Package local build
+        run: ditto -c -k --sequesterRsrc --keepParent build/Weeklet.app build/Weeklet-macOS.zip
+      - name: Save application artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Weeklet-macOS
+          path: build/Weeklet-macOS.zip
+          retention-days: 7
+          if-no-files-found: error
