@@ -22,9 +22,17 @@ struct PopoverView: View {
     private var visibleStates: [ProviderState] { store.visibleStates }
 
     var body: some View {
-        Group {
-            if showingHelp || helpPreview { helpContent }
-            else { usageContent }
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if showingHelp || helpPreview { helpContent }
+                else { usageContent }
+            }
+            Text("v\(updates.currentVersion)")
+                .font(.system(size: 10)).monospacedDigit()
+                .foregroundStyle(Palette.secondary.opacity(0.4))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, 8)
+                .accessibilityLabel("Weeklet version \(updates.currentVersion)")
         }
         .padding(22)
         .frame(width: 328)

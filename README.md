@@ -111,6 +111,8 @@ Read the precise [credential locations and privacy boundaries](docs/privacy.md) 
 
 Opening the popover checks GitHub Releases when due, without a background polling timer. A newer compatible version adds **Update** to the popover. Click it to download, verify, install and reopen Weeklet. **Options → Check for Updates** checks immediately.
 
+The installed version stays visible at the very bottom of the quota and Help views in a quiet gray label.
+
 Every update is authenticated with a pinned Ed25519 publisher key and SHA-256 before extraction. The installer validates the app, prepares a replacement before quitting, swaps bundles atomically and attempts rollback if reopening fails. Installation never starts from a background check alone. No provider token, GitHub token or signing secret is stored in the app.
 
 The owner publishes with `./scripts/release.sh --publish`: build and sign locally, then let a free standard GitHub Actions runner verify and publish the public files. The private signing key stays in the owner's Keychain and is never uploaded to GitHub. See [updates and publishing](docs/updates.md).
