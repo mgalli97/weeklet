@@ -36,7 +36,11 @@ enum WeekletMain {
         application.setActivationPolicy(.accessory)
         application.appearance = NSAppearance(named: .darkAqua)
         if let index = arguments.firstIndex(of: "--snapshot"), arguments.indices.contains(index + 1) {
-            do { try SampleData.snapshot(to: URL(fileURLWithPath: arguments[index + 1]), errors: arguments.contains("--sample-errors")) }
+            do {
+                try SampleData.snapshot(to: URL(fileURLWithPath: arguments[index + 1]),
+                                        errors: arguments.contains("--sample-errors"),
+                                        help: arguments.contains("--sample-help"), empty: arguments.contains("--sample-empty"))
+            }
             catch { fputs("Could not save sample preview.\n", stderr); exit(1) }
             return
         }

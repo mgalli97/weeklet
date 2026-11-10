@@ -6,8 +6,9 @@ public enum Provider: String, CaseIterable, Sendable, Identifiable {
     public var id: String { rawValue }
     public var name: String { self == .claude ? "Claude Code" : "Codex" }
     public var shortName: String { self == .claude ? "C" : "X" }
+    public var signInCommand: String { self == .claude ? "claude auth login" : "codex login" }
     public var signInHint: String {
-        self == .claude ? "Sign in with Claude Code, then refresh." : "Sign in with Codex, then refresh."
+        "Run \(signInCommand), then refresh."
     }
 
     public var usageURL: URL {
@@ -123,6 +124,18 @@ public struct ProviderState: Identifiable, Sendable, Equatable {
         self.usage = usage
         self.failure = failure
         isLoading = false
+    }
+
+    /// Authentication problems hide the provider; temporary usage failures remain visible.
+    public var isVisible: Bool {
+        switch failure {
+        case .notSignedIn, .credentialAccess, .insecureCredentials, .unsupportedAuth, .expiredSession:
+            false
+        case .offline, .timeout, .rateLimited, .serviceUnavailable, .invalidResponse, .weeklyUnavailable, .redirectBlocked:
+            true
+        case .cancelled, nil:
+            usage != nil
+        }
     }
 
     public func menuValue(at date: Date, period: QuotaPeriod = .weekly) -> String {

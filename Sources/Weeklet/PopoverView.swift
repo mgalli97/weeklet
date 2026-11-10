@@ -15,8 +15,26 @@ struct PopoverView: View {
     @ObservedObject var activity: ActivityStore
     var preview = false
     var staticSnapshot = false
+    var helpPreview = false
+    var onContentChange: () -> Void = {}
+    @State private var showingHelp = false
+    private var visibleStates: [ProviderState] { store.visibleStates }
 
     var body: some View {
+        Group {
+            if showingHelp || helpPreview { helpContent }
+            else { usageContent }
+        }
+        .padding(22)
+        .frame(width: 328)
+        .foregroundStyle(Palette.foreground)
+        .background(Palette.background)
+        .environment(\.locale, Locale(identifier: "en_US"))
+        .preferredColorScheme(.dark)
+        .onChange(of: showingHelp) { _, _ in onContentChange() }
+    }
+
+    private var usageContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Weeklet").font(.system(size: 14, weight: .semibold))
@@ -30,16 +48,29 @@ struct PopoverView: View {
             }
             .padding(.bottom, 26)
 
-            ForEach(Array(store.states.enumerated()), id: \.element.id) { index, state in
+            if visibleStates.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(store.isRefreshing ? "Checking sign-ins…" : "No providers connected")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Open Help to set up Claude Code or Codex.")
+                        .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Help") { showingHelp = true }
+                        .font(.system(size: 11, weight: .medium)).buttonStyle(.plain)
+                        .padding(.top, 2)
+                }
+            }
+
+            ForEach(Array(visibleStates.enumerated()), id: \.element.id) { index, state in
                 UsageRow(state: state, activity: activity.states.first { $0.provider == state.provider }, pulse: activity.pulse)
-                if index < store.states.count - 1 { Color.white.opacity(0.07).frame(height: 1).padding(.vertical, 22) }
+                if index < visibleStates.count - 1 { Color.white.opacity(0.07).frame(height: 1).padding(.vertical, 22) }
             }
 
             Color.white.opacity(0.07).frame(height: 1).padding(.top, 24).padding(.bottom, 14)
             HStack(spacing: 8) {
-                Circle().fill(store.states.allSatisfy { $0.failure == nil && $0.usage != nil } ? Palette.codex : Palette.secondary)
+                Circle().fill(!visibleStates.isEmpty && visibleStates.allSatisfy { $0.failure == nil && $0.usage != nil } ? Palette.codex : Palette.secondary)
                     .frame(width: 4, height: 4)
-                Text(preview ? "Sample data" : "Menu bar shows available")
+                Text(preview ? "Sample data" : visibleStates.isEmpty ? "Sign in, then refresh" : "Menu bar shows available")
                     .font(.system(size: 10)).foregroundStyle(Palette.secondary)
                 Spacer(minLength: 0)
                 Button { store.refresh(manual: true) } label: {
@@ -59,12 +90,76 @@ struct PopoverView: View {
                     .font(.system(size: 10)).buttonStyle(.plain).foregroundStyle(Palette.secondary).padding(.top, 8)
             }
         }
-        .padding(22)
-        .frame(width: 328)
-        .foregroundStyle(Palette.foreground)
-        .background(Palette.background)
-        .environment(\.locale, Locale(identifier: "en_US"))
-        .preferredColorScheme(.dark)
+    }
+
+    private var helpContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Text("Help").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Done") { showingHelp = false }
+                    .font(.system(size: 11)).buttonStyle(.plain)
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+            Text("Sign in with your subscription from Terminal.")
+                .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(store.states) { state in
+                helpProvider(state)
+            }
+            Text("Missing or expired? Sign in again, then refresh.")
+                .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button {
+                    showingHelp = false
+                    store.refresh(manual: true)
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .disabled(store.isRefreshing || preview)
+                Spacer()
+                if preview {
+                    Text("Sample data").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                }
+            }
+        }
+    }
+
+    private func helpProvider(_ state: ProviderState) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(nsImage: ProviderArtwork.image(for: state.provider))
+                    .resizable().renderingMode(state.provider == .claude ? .template : .original)
+                    .scaledToFit().frame(width: 18, height: 18)
+                    .foregroundStyle(state.provider == .claude ? Palette.claude : Palette.foreground)
+                    .accessibilityHidden(true)
+                Text(state.provider.name).font(.system(size: 12, weight: .medium))
+            }
+            if let failure = state.failure {
+                Text(failure == .credentialAccess || failure == .insecureCredentials ? failure.detail(for: state.provider) : failure.message)
+                    .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Text(state.provider.signInCommand).font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled).lineLimit(1)
+                Spacer(minLength: 0)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(state.provider.signInCommand, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc").font(.system(size: 11))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain).help("Copy command")
+                .accessibilityLabel("Copy \(state.provider.name) sign-in command")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+        }
     }
 
     private var settings: some View {
@@ -72,6 +167,8 @@ struct PopoverView: View {
             Toggle("Launch at login", isOn: Binding(get: { login.enabled || login.needsApproval }, set: { login.setEnabled($0) }))
                 .disabled(!login.available || login.isChanging || preview)
             if login.needsApproval { Button("Open Login Items Settings") { login.openSettings() } }
+            Divider()
+            Button("Help") { showingHelp = true }
             Divider()
             Button("Quit Weeklet") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         } label: {

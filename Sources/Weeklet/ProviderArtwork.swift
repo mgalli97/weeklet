@@ -11,6 +11,12 @@ enum ProviderArtwork {
         provider == .claude ? claude : codex
     }
 
+    static func appMenuImage() -> NSImage? {
+        let image = NSApp.applicationIconImage?.copy() as? NSImage
+        image?.size = NSSize(width: 18, height: 18)
+        return image ?? NSImage(systemSymbolName: "circle.dotted", accessibilityDescription: "Weeklet")
+    }
+
     static func activityTint(for provider: Provider) -> NSColor {
         provider == .claude
             ? NSColor(calibratedRed: 217 / 255, green: 119 / 255, blue: 87 / 255, alpha: 1)

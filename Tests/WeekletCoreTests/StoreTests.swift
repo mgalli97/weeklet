@@ -13,8 +13,9 @@ private actor TestService: UsageFetching {
     private(set) var calls: [Provider] = []
     private(set) var interactions: [Bool] = []
     let clock: TestClock
-    let claudeFailure: UsageFailure?
+    private var claudeFailure: UsageFailure?
     init(clock: TestClock, claudeFailure: UsageFailure? = nil) { self.clock = clock; self.claudeFailure = claudeFailure }
+    func setClaudeFailure(_ failure: UsageFailure?) { claudeFailure = failure }
     func fetch(_ provider: Provider, allowInteraction: Bool) async -> Result<UsageSnapshot, UsageFailure> {
         calls.append(provider)
         interactions.append(allowInteraction)
@@ -81,7 +82,7 @@ final class StoreTests {
         await store.waitForRefresh()
         checkEqual(store.states[0].failure, .expiredSession)
         checkNotNil(store.states[1].usage)
-        checkEqual(store.menuTitle, "C — h · — w  |  X 75% w")
+        checkEqual(store.menuTitle, "X 75% w")
     }
 
     @Test @MainActor func testManualRefreshRespectsProviderBackoff() async {
@@ -196,5 +197,79 @@ final class StoreTests {
         checkEqual(state.menuSummary(at: now.addingTimeInterval(61)), "0% w (<1m lft)")
         checkEqual(state.menuSummary(at: now.addingTimeInterval(120)), "— w")
         checkNil(state.menuResetCountdown(at: now.addingTimeInterval(120)))
+    }
+
+    @Test func testProvidersStayHiddenUntilSignInIsKnown() throws {
+        var state = ProviderState(provider: .claude)
+        checkFalse(state.isVisible)
+        state.isLoading = true
+        checkFalse(state.isVisible)
+        state.receive(.success(UsageSnapshot(weekly: try QuotaUsage(usedPercent: 25, resetsAt: nil, fetchedAt: now))), at: now)
+        checkEqual(state.isVisible, true)
+        state.isLoading = true
+        checkEqual(state.isVisible, true)
+    }
+
+    @Test func testAuthenticationFailuresHideProvidersEvenWithPreviousUsage() throws {
+        let usage = try QuotaUsage(usedPercent: 25, resetsAt: nil, fetchedAt: now)
+        for provider in Provider.allCases {
+            for failure in [UsageFailure.notSignedIn, .expiredSession, .unsupportedAuth, .credentialAccess, .insecureCredentials] {
+                let state = ProviderState(provider: provider, usage: UsageSnapshot(weekly: usage), failure: failure)
+                checkFalse(state.isVisible)
+            }
+        }
+    }
+
+    @Test func testUsageFailuresKeepConfiguredProvidersVisible() throws {
+        for failure in [UsageFailure.offline, .timeout, .rateLimited(until: now.addingTimeInterval(60)),
+                        .serviceUnavailable, .invalidResponse, .weeklyUnavailable, .redirectBlocked] {
+            let state = ProviderState(provider: .claude, failure: failure)
+            checkEqual(state.isVisible, true)
+            checkEqual(state.menuValue(at: now), "—")
+        }
+        checkFalse(ProviderState(provider: .claude, failure: .cancelled).isVisible)
+        let usage = try QuotaUsage(usedPercent: 25, resetsAt: nil, fetchedAt: now)
+        checkEqual(ProviderState(provider: .claude, usage: UsageSnapshot(weekly: usage), failure: .cancelled).isVisible, true)
+    }
+
+    @Test @MainActor func testNoProvidersKeepsAnAccessibleWeekletEntry() {
+        let store = UsageStore(states: Provider.allCases.map { ProviderState(provider: $0, failure: .notSignedIn) })
+        checkEqual(store.visibleStates.count, 0)
+        checkEqual(store.menuTitle, "Weeklet")
+    }
+
+    @Test @MainActor func testMissingProviderLeavesNoEmptyValuesOrSeparator() throws {
+        let date = now
+        let usage = try QuotaUsage(usedPercent: 25, resetsAt: nil, fetchedAt: now)
+        for visible in Provider.allCases {
+            let states = Provider.allCases.map {
+                $0 == visible ? ProviderState(provider: $0, usage: UsageSnapshot(weekly: usage)) : ProviderState(provider: $0, failure: .notSignedIn)
+            }
+            let store = UsageStore(clock: { date }, states: states)
+            checkEqual(store.visibleStates.map(\.provider), [visible])
+            checkEqual(store.menuTitle.contains("|"), false)
+            checkEqual(store.menuTitle.hasPrefix(visible.shortName), true)
+        }
+    }
+
+    @Test @MainActor func testHiddenProvidersAreStillPolledAndReturnAfterSignIn() async {
+        let clock = TestClock()
+        let service = TestService(clock: clock, claudeFailure: .notSignedIn)
+        let store = UsageStore(service: service, clock: { clock.now() })
+        store.refresh()
+        await store.waitForRefresh()
+        checkEqual(store.visibleStates.map(\.provider), [.codex])
+        await service.setClaudeFailure(nil)
+        clock.advance(300)
+        store.refresh()
+        await store.waitForRefresh()
+        checkEqual(store.visibleStates.map(\.provider), [.claude, .codex])
+        let calls = await service.calls
+        checkEqual(calls.filter { $0 == .claude }.count, 2)
+        await service.setClaudeFailure(.expiredSession)
+        clock.advance(300)
+        store.refresh()
+        await store.waitForRefresh()
+        checkEqual(store.visibleStates.map(\.provider), [.codex])
     }
 }

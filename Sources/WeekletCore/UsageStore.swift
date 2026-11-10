@@ -19,8 +19,12 @@ public final class UsageStore: ObservableObject {
         self.states = states
     }
 
+    public var visibleStates: [ProviderState] { states.filter(\.isVisible) }
+
     public var menuTitle: String {
-        states.map { "\($0.provider.shortName) \($0.menuSummary(at: clock()))" }.joined(separator: "  |  ")
+        let visible = visibleStates
+        guard !visible.isEmpty else { return "Weeklet" }
+        return visible.map { "\($0.provider.shortName) \($0.menuSummary(at: clock()))" }.joined(separator: "  |  ")
     }
 
     public func start() {

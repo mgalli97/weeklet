@@ -40,7 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.animates = false
         popover.appearance = NSAppearance(named: .darkAqua)
         popover.delegate = self
-        let hosting = NSHostingController(rootView: PopoverView(store: store, login: login, activity: activity, preview: preview).fixedSize())
+        let root = PopoverView(store: store, login: login, activity: activity, preview: preview, onContentChange: { [weak self] in
+            Task { @MainActor in self?.updatePopoverLayout() }
+        })
+        let hosting = NSHostingController(rootView: root.fixedSize())
         hosting.sizingOptions = [.intrinsicContentSize, .preferredContentSize]
         hosting.safeAreaRegions = []
         popover.contentViewController = hosting
@@ -80,12 +83,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func updateTitle(_ states: [ProviderState], activities: [ProviderActivity]? = nil, pulse: Bool? = nil, verb: ActivityVerb? = nil) {
         guard let button = statusItem?.button else { return }
         let now = Date()
+        let visible = states.filter(\.isVisible)
+        let visibleProviders = Set(visible.map(\.provider))
+        button.image = visible.isEmpty ? ProviderArtwork.appMenuImage() : nil
         let title = NSMutableAttributedString(string: "")
         let attributes: [NSAttributedString.Key: Any] = [
             .font: menuFont,
             .foregroundColor: NSColor.labelColor
         ]
-        for (index, state) in states.enumerated() {
+        for (index, state) in visible.enumerated() {
             if index > 0 { title.append(NSAttributedString(string: "  |  ", attributes: attributes)) }
             let logo = NSTextAttachment()
             logo.image = ProviderArtwork.menuImage(for: state.provider, appearance: button.effectiveAppearance)
@@ -105,15 +111,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
         button.attributedTitle = title
-        let working = (activities ?? activity.states).filter(\.isWorking).map { state in
+        let working = (activities ?? activity.states).filter { $0.isWorking && visibleProviders.contains($0.provider) }.map { state in
             let names = state.chats.prefix(3).map { $0.title ?? "Untitled chat" }.joined(separator: ", ")
             return state.activeCount > 1 ? "\(state.provider.name): \(state.displayTitle) · \(names)" : "\(state.provider.name): \(state.displayTitle)"
         }
-        button.toolTip = (["Available · h: 5-hour session · w: weekly · lft: until reset"] + working).joined(separator: "\n") + (preview ? " · Sample data" : "")
-        button.setAccessibilityLabel("Weeklet. " + states.map {
+        let hint = visible.isEmpty ? "Weeklet · Open Options → Help to connect a provider" : "Available · h: 5-hour session · w: weekly · lft: until reset"
+        button.toolTip = ([hint] + working).joined(separator: "\n") + (preview ? " · Sample data" : "")
+        let summary = visible.isEmpty ? "No providers connected. Open Options, then Help." : visible.map {
             "\($0.provider.name): \($0.menuSummary(at: now).replacingOccurrences(of: " lft", with: " left")) available"
-        }.joined(separator: ". ") + (working.isEmpty ? "" : ". Working: " + working.joined(separator: ". ")))
-        updateCountdownTimer(states, at: now)
+        }.joined(separator: ". ")
+        button.setAccessibilityLabel("Weeklet. " + summary + (working.isEmpty ? "" : ". Working: " + working.joined(separator: ". ")))
+        updateCountdownTimer(visible, at: now)
     }
 
     private func updateCountdownTimer(_ states: [ProviderState], at date: Date) {
@@ -216,7 +224,8 @@ enum SampleData {
         ])])
     }
 
-    static func store(errors: Bool = false) -> UsageStore {
+    static func store(errors: Bool = false, empty: Bool = false) -> UsageStore {
+        if empty { return UsageStore(states: Provider.allCases.map { ProviderState(provider: $0, failure: .notSignedIn) }) }
         let now = Date()
         let claude = try! QuotaUsage(usedPercent: 37, resetsAt: now.addingTimeInterval(172_800), fetchedAt: now)
         let session = try! QuotaUsage(usedPercent: 21, resetsAt: now.addingTimeInterval(10_800), fetchedAt: now)
@@ -227,9 +236,9 @@ enum SampleData {
         ])
     }
 
-    static func snapshot(to url: URL, errors: Bool = false) throws {
+    static func snapshot(to url: URL, errors: Bool = false, help: Bool = false, empty: Bool = false) throws {
         // ImageRenderer cannot render AppKit's menu control. Render its identical label only.
-        let view = PopoverView(store: store(errors: errors), login: LoginItemController(), activity: activity(), preview: true, staticSnapshot: true)
+        let view = PopoverView(store: store(errors: errors, empty: empty), login: LoginItemController(), activity: activity(), preview: true, staticSnapshot: true, helpPreview: help)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,

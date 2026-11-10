@@ -25,7 +25,7 @@ Weeklet keeps two numbers close: how much of your **weekly Claude Code and Codex
 <p align="center">
   <img src="docs/images/popover.png" width="328" alt="Weeklet dark popover: Claude Code 37 percent used, Codex 68 percent used, remaining quotas, reset dates and two sample working chats">
   &nbsp;&nbsp;
-  <img src="docs/images/session-expired.png" width="328" alt="Weeklet with a Claude Code session-expired message while the Codex quota remains available">
+  <img src="docs/images/help.png" width="328" alt="Weeklet Help with official sign-in commands, a sample expired Claude session and copy buttons">
 </p>
 <p align="center"><sub>Rendered from the native SwiftUI interface. All values are sample data; no account data is published.</sub></p>
 
@@ -38,7 +38,9 @@ Weeklet keeps two numbers close: how much of your **weekly Claude Code and Codex
 | **A light footprint** | Native status item and SwiftUI, cached local activity checks and no embedded browser. |
 | **Quiet activity** | A pulsing dot with rotating white `brew…` / `cook…` labels; counts for multiple chats and titles inside the popover. |
 | **Your existing sign-in** | Read-only access to the official tools' local credentials. No copied or renewed tokens. |
-| **Clear failure states** | Expired session, offline, denied access, rate limited or unavailable quota. No invented numbers. |
+| **Only connected providers** | Missing or expired sessions stay hidden; a Weeklet icon keeps setup and Help reachable. |
+| **Help when needed** | Options → Help shows sign-in commands, copy buttons and current recovery guidance. |
+| **Clear failure states** | Temporary network and provider errors remain visible. No invented numbers. |
 | **Your choice at login** | Optional launch at login using Apple's ServiceManagement framework. |
 
 The popover is always dark and all app text is English. macOS controls the system menu bar's appearance. There is no Dock icon or permanent app window.
@@ -56,6 +58,10 @@ open "build/Weeklet.app"
 ```
 
 The build script produces an optimized application bundle with an original icon and a local ad-hoc signature. Open `Package.swift` in Xcode to edit or debug.
+
+Sign in to either official tool with your subscription account. If needed, run `claude auth login` for Claude Code or `codex login` for Codex in Terminal, then click **Refresh**. These commands are also available with copy buttons under **Options → Help**, next to Launch at login. Weeklet never executes them or starts an authentication flow itself. Claude's command is documented in its [CLI reference](https://code.claude.com/docs/en/cli-reference); Codex's command was verified with the installed official CLI's `login --help`.
+
+Only providers with a usable subscription sign-in appear in the menu bar and quota list. Missing, expired, unsupported or inaccessible credentials hide that provider; **Help** keeps its latest error and recovery steps available. Temporary usage failures, such as an offline connection, leave a configured provider visible with a dash and its error. Hidden providers are still checked on the normal refresh schedule, so they return after signing in without restarting Weeklet. If none are ready, Weeklet shows its own icon and a compact [setup view](docs/images/no-providers.png); the [single-provider preview](docs/images/session-expired.png) shows Codex while a sample expired Claude session is hidden.
 
 For launch at login, move the app to `/Applications` or `~/Applications`, then enable **Options → Launch at login**. macOS may request approval in **System Settings → General → Login Items**. The option uses the operating system's actual registration state; Weeklet does not enable it automatically.
 
@@ -96,7 +102,7 @@ Read the precise [credential locations and privacy boundaries](docs/privacy.md) 
 
 ## Verification status
 
-The optimized Apple Silicon app builds on **macOS 26.7.1 with Swift 6.3.3**, using standalone Command Line Tools. **72 isolated tests pass** across contracts, credentials, transport behavior and refresh state.
+The optimized Apple Silicon app builds on **macOS 26.7.1 with Swift 6.3.3**, using standalone Command Line Tools. **78 isolated tests pass** across contracts, credentials, transport behavior and refresh state.
 
 Real read-only usage requests succeeded for both Claude Code and Codex. The existing Claude credential initially expired; after renewing it in the official tool, the compiled app successfully reported its weekly quota without changing or refreshing any token itself. The real popover was inspected with both live quotas. Login-item registration, keyboard and VoiceOver behavior, and Intel execution still need manual verification. See the full [validation record](docs/validation.md).
 
@@ -121,7 +127,7 @@ open "build/Weeklet.app" --args --preview
 ./scripts/screenshots.sh
 ```
 
-`--check` exits 0 only when both providers report a weekly quota. `--snapshot` always uses sample data; add `--sample-errors` to preview the expired-session state. Never pass tokens as command-line arguments.
+`--check` exits 0 only when both providers report a weekly quota, including providers hidden in the UI. `--snapshot` always uses sample data; add `--sample-errors` to preview a hidden expired session, `--sample-help` for the Help view or `--sample-empty` for setup with no connected providers. Never pass tokens as command-line arguments.
 
 `--show` opens the real popover and requests a foreground refresh, which may show macOS's Keychain access dialog. Reopening an already running app also shows its popover. Ordinary background refresh remains noninteractive.
 
