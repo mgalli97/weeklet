@@ -72,7 +72,7 @@ final class ActivityTests {
     @Test func testActivityTitleIsSmallAndSanitized() {
         let activity = ProviderActivity(provider: .codex, isWorking: true, title: "\n Build\u{0}   settings \t")
         checkEqual(activity.displayTitle, "Build settings")
-        checkEqual(activity.menuLabel(verb: .brewing), "brew…")
+        checkNil(activity.badgeText)
         checkEqual(ProviderActivity(provider: .claude, isWorking: true).displayTitle, "Working")
     }
 
@@ -171,7 +171,7 @@ final class ActivityTests {
         await store.waitForRefresh()
         let calls = await reader.calls
         checkEqual(calls, 1)
-        checkEqual(store.states.last?.menuLabel(), "think…")
+        checkEqual(store.states.last?.activeCount, 1)
         store.stop()
     }
 
@@ -180,7 +180,7 @@ final class ActivityTests {
             WorkingChat(id: "first", title: "First chat"), WorkingChat(id: "second", title: "Second chat")
         ])
         checkEqual(state.activeCount, 2)
-        checkEqual(state.menuLabel(verb: .cooking), "2 cook…")
+        checkEqual(state.badgeText, "2")
         checkEqual(state.title, "First chat")
     }
 
@@ -217,30 +217,29 @@ final class ActivityTests {
         checkEqual(remaining?.title, "Build settings")
     }
 
-    @Test func testProgressWordsStayCompactAndCycle() {
-        checkEqual(ActivityVerb.thinking.compact, "think…")
-        checkEqual(ActivityVerb.baking.next, .thinking)
-        for verb in ActivityVerb.allCases {
-            checkEqual(verb.compact.hasSuffix("…"), true)
-            checkEqual(verb.compact.count <= 6, true)
+    @Test func testBadgeNumbersAppearOnlyForMultipleChats() {
+        checkNil(ProviderActivity(provider: .claude).badgeText)
+        checkNil(ProviderActivity(provider: .claude, isWorking: true).badgeText)
+        for count in 2...16 {
+            let chats = (0..<count).map { WorkingChat(id: String($0), title: nil) }
+            checkEqual(ProviderActivity(provider: .claude, chats: chats).badgeText, String(count))
         }
     }
 
-    @Test @MainActor func testWordsRotateOnlyDuringActiveWork() async {
+    @Test @MainActor func testWorkingPulseStopsAfterMonitoringStops() async {
         let store = ActivityStore(reader: TestActivityReader())
         store.refresh()
         await store.waitForRefresh()
-        for _ in 0..<8 { store.advancePulse() }
-        checkEqual(store.verb, .brewing)
+        store.advancePulse()
+        checkEqual(store.pulse, false)
         store.stop()
         for _ in 0..<8 { store.advancePulse() }
-        checkEqual(store.verb, .brewing)
+        checkEqual(store.pulse, false)
     }
 
-    @Test @MainActor func testIdleActivityDoesNotAnimateOrRotate() {
+    @Test @MainActor func testIdleActivityDoesNotPulse() {
         let store = ActivityStore(reader: TestActivityReader())
         for _ in 0..<16 { store.advancePulse() }
-        checkEqual(store.verb, .thinking)
         checkEqual(store.pulse, true)
     }
 }

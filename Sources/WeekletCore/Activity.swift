@@ -1,25 +1,5 @@
 import Foundation
 
-public enum ActivityVerb: String, CaseIterable, Sendable {
-    case thinking, brewing, cooking, crafting, pondering, baking
-
-    public var compact: String {
-        switch self {
-        case .thinking: "think…"
-        case .brewing: "brew…"
-        case .cooking: "cook…"
-        case .crafting: "craft…"
-        case .pondering: "pond…"
-        case .baking: "bake…"
-        }
-    }
-
-    public var next: ActivityVerb {
-        let values = Self.allCases
-        return values[(values.firstIndex(of: self)! + 1) % values.count]
-    }
-}
-
 public struct WorkingChat: Sendable, Equatable, Identifiable {
     public let id: String
     public let title: String?
@@ -57,10 +37,7 @@ public struct ProviderActivity: Sendable, Equatable {
     public var displayTitle: String {
         activeCount > 1 ? "\(activeCount) working" : title ?? "Working"
     }
-    public func menuLabel(verb: ActivityVerb = .thinking) -> String {
-        guard isWorking else { return "" }
-        return activeCount > 1 ? "\(activeCount) \(verb.compact)" : verb.compact
-    }
+    public var badgeText: String? { activeCount > 1 ? (activeCount > 99 ? "99+" : String(activeCount)) : nil }
 }
 
 public protocol ActivityReading: Sendable {

@@ -1,0 +1,35 @@
+name: Publish signed release
+
+on:
+  push:
+    branches: ['release-staging/**']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out signed staging material
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify publisher signature and archive
+        run: python3 scripts/verify-release.py release
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(python3 -c 'import json; print(json.load(open("release/metadata.json"))["tag"])')
+          source=$(python3 -c 'import json; print(json.load(open("release/metadata.json"))["source"])')
+          archive=$(python3 -c 'import json; print(json.load(open("release/metadata.json"))["archive"])')
+          gh release create "$tag" "release/$archive" release/update.json \
+            --repo "$GITHUB_REPOSITORY" --target "$source" --title "Weeklet ${tag#v}" \
+            --notes-file release/notes.md --latest

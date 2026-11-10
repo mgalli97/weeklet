@@ -14,7 +14,13 @@ Background refresh never requests Keychain interaction. If macOS denies access, 
 
 Credential files must be regular files owned by the current user, with no group or other permissions. Reads refuse final-component symlinks, non-regular files and files over 1 MiB. No permission fixes are made automatically. Access tokens exist transiently in process memory and HTTPS request headers; Swift/Foundation cannot guarantee secure memory zeroing. Tokens, account IDs, response bodies and emails are never logged or persisted by Weeklet.
 
-Requests are `GET` only, to two fixed HTTPS URLs. Every redirect is refused, including redirects on the same host. System TLS validation remains enabled. The ephemeral network session has no cookies, disk cache or credential storage. Responses are limited to 1 MiB and requests have 15/20-second timeouts. There is no configurable proxy or base URL inside the app; macOS networking settings still apply. The application is not App Sandbox enabled because it reads the official tools' local credentials; no broad entitlements are added.
+Provider requests are `GET` only, to two fixed HTTPS URLs. Every provider redirect is refused, including redirects on the same host. System TLS validation remains enabled. The ephemeral network session has no cookies, disk cache or credential storage. Responses are limited to 1 MiB and requests have 15/20-second timeouts. There is no configurable proxy or base URL inside the app; macOS networking settings still apply. The application is not App Sandbox enabled because it reads the official tools' local credentials; no broad entitlements are added.
+
+## Updates
+
+Opening the popover can request public release metadata from GitHub through a separate session with no cookies, credentials or Authorization header. As with any HTTPS request, GitHub sees the connecting IP address and the generic Weeklet user agent. No provider account, quota, token, chat title or conversation content is included. GitHub HTTPS redirects are restricted to its release hosts, and signed metadata pins the archive URL to this repository.
+
+Clicking Update downloads a bounded signed package to a private temporary directory. A bundled installer verifies it again, replaces the app and reopens it. The only subprocesses are the bundled installer and system packaging/signature tools; no provider CLI or authentication helper is launched. The separate owner-only release tool reads its own `Weeklet Release Signing` Keychain item to sign publications. That key is unrelated to provider sessions, is never included in the app and is never sent to GitHub. See [updates](updates.md).
 
 ## Provider contract boundaries
 
@@ -22,4 +28,4 @@ See [provider contracts](provider-contracts.md) for exact request and response s
 
 ## Local chat activity
 
-An active chat's short title is intentionally displayed locally. Existing Codex SQLite metadata and bounded Claude Code/Codex transcript tails supply lifecycle signals. No hooks or helper processes are installed, and no title, message or activity history is transmitted or persisted. The indicator is best-effort and independent of provider quota requests. See [local activity](local-activity.md) for exact read boundaries and limitations.
+An active chat's short title is intentionally displayed locally. Existing Codex SQLite metadata and bounded Claude Code/Codex transcript tails supply lifecycle signals. No activity hooks or helper processes are installed, and no title, message or activity history is transmitted or persisted. The indicator is best-effort and independent of provider quota requests. See [local activity](local-activity.md) for exact read boundaries and limitations.

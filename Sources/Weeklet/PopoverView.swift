@@ -13,6 +13,7 @@ struct PopoverView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var login: LoginItemController
     @ObservedObject var activity: ActivityStore
+    @ObservedObject var updates: UpdateController
     var preview = false
     var staticSnapshot = false
     var helpPreview = false
@@ -66,6 +67,20 @@ struct PopoverView: View {
                 if index < visibleStates.count - 1 { Color.white.opacity(0.07).frame(height: 1).padding(.vertical, 22) }
             }
 
+            if let banner = updates.banner {
+                Color.white.opacity(0.07).frame(height: 1).padding(.top, 20).padding(.bottom, 12)
+                HStack(spacing: 10) {
+                    Text(banner).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    if !updates.busy {
+                        Button(updates.available == nil ? "Check" : "Update") {
+                            if updates.available != nil { updates.install() }
+                            else { updates.check(manual: true) }
+                        }
+                        .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
+                    }
+                }
+            }
             Color.white.opacity(0.07).frame(height: 1).padding(.top, 24).padding(.bottom, 14)
             HStack(spacing: 8) {
                 Circle().fill(!visibleStates.isEmpty && visibleStates.allSatisfy { $0.failure == nil && $0.usage != nil } ? Palette.codex : Palette.secondary)
@@ -167,6 +182,9 @@ struct PopoverView: View {
             Toggle("Launch at login", isOn: Binding(get: { login.enabled || login.needsApproval }, set: { login.setEnabled($0) }))
                 .disabled(!login.available || login.isChanging || preview)
             if login.needsApproval { Button("Open Login Items Settings") { login.openSettings() } }
+            Divider()
+            Button("Check for Updates") { updates.check(manual: true) }.disabled(updates.busy || preview)
+            Text("Weeklet \(updates.currentVersion)")
             Divider()
             Button("Help") { showingHelp = true }
             Divider()

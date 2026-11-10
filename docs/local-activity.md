@@ -1,6 +1,6 @@
 # Local activity indicators
 
-When a local tool is working, Weeklet shows a small pulsing dot and a compact white verb in the menu bar: `think…`, `brew…`, `cook…`, `craft…`, `pond…` or `bake…`. With several active chats, the count stays in front, such as `2 brew…` or `3 craft…`. Chat titles stay in the popover to keep the status item compact. The popover lists up to three titles and a `+N more` line for additional work; the tooltip also includes the first three sanitized titles. When a provider is idle, the extra label disappears. The pulse runs only while a provider is marked active and does not change the status item's width on each frame.
+When a local tool is working, Weeklet shows a small pulsing green badge at the upper-left of its menu bar logo. One active chat shows only a dot; two or more show a small white count inside the badge. The badge disappears while idle and keeps the status item's width constant. Chat titles stay in the popover, which lists up to three titles and a `+N more` line; the tooltip also includes the first three sanitized titles.
 
 Activity is local and independent of quota requests. It does not add provider API calls, start a CLI, install hooks or change a tool's settings. It uses existing local metadata and transcript lifecycle events. This is a best-effort local signal, not a server-authoritative activity API.
 
@@ -30,8 +30,6 @@ Active sessions are counted independently per provider, with duplicate session I
 
 This implementation was written from observed local field contracts, without copying another app's code. The isolated test suite covers lifecycle transitions, truncation, explicit-title selection, bounded local readers, read-only database contents, stale activity and refresh coalescing.
 
-## Rotating words
+## Logo badge
 
-The six selected verbs are inspired by Claude Code's documented [spinner verbs](https://code.claude.com/docs/en/settings-reference#spinnerverbs) and the firsthand word list reported in [Anthropic's issue tracker](https://github.com/anthropics/claude-code/issues/61352). They are ambient busy labels, not claims about a tool's current internal operation. No external code or complete word list was copied.
-
-The current label changes about every 6.4 seconds, reusing the existing active-only pulse timer. The two providers use different offsets in the same cycle. Rotation and pulsing stop while idle; no extra timer or network request is added. Words are shortened to four or five letters plus an ellipsis, and activity text is rendered white for contrast. All menu bar text uses the same 11-point font as the percentages.
+The existing 0.8-second active-only timer pulses the green background. Count text stays legible in both phases, and a count of one is omitted. Percentages retain the same 11-point font; only the count inside the small badge uses a smaller font. No rotating word or separate menu bar task label is rendered.

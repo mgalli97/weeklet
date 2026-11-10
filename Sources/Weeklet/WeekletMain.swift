@@ -35,6 +35,11 @@ enum WeekletMain {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
         application.appearance = NSAppearance(named: .darkAqua)
+        if let index = arguments.firstIndex(of: "--snapshot-menu"), arguments.indices.contains(index + 1) {
+            do { try SampleData.menuSnapshot(to: URL(fileURLWithPath: arguments[index + 1])) }
+            catch { fputs("Could not save sample menu preview.\n", stderr); exit(1) }
+            return
+        }
         if let index = arguments.firstIndex(of: "--snapshot"), arguments.indices.contains(index + 1) {
             do {
                 try SampleData.snapshot(to: URL(fileURLWithPath: arguments[index + 1]),
@@ -44,7 +49,8 @@ enum WeekletMain {
             catch { fputs("Could not save sample preview.\n", stderr); exit(1) }
             return
         }
-        let delegate = AppDelegate(preview: arguments.contains("--preview"), showOnLaunch: arguments.contains("--show"))
+        let delegate = AppDelegate(preview: arguments.contains("--preview"), showOnLaunch: arguments.contains("--show"),
+                                   previousInstallFailed: arguments.contains("--update-failed"))
         application.delegate = delegate
         withExtendedLifetime(delegate) { application.run() }
     }

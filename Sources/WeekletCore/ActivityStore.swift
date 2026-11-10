@@ -5,12 +5,10 @@ import Foundation
 public final class ActivityStore: ObservableObject {
     @Published public private(set) var states: [ProviderActivity]
     @Published public private(set) var pulse = true
-    @Published public private(set) var verb: ActivityVerb = .thinking
     private let reader: any ActivityReading
     private var timer: Timer?
     private var pulseTimer: Timer?
     private var task: Task<Void, Never>?
-    private var pulseTicks = 0
 
     public init(reader: any ActivityReading = LocalActivityReader(),
                 states: [ProviderActivity] = Provider.allCases.map { ProviderActivity(provider: $0) }) {
@@ -54,11 +52,6 @@ public final class ActivityStore: ObservableObject {
     func advancePulse() {
         guard pulseTimer != nil, states.contains(where: \.isWorking) else { return }
         pulse.toggle()
-        pulseTicks += 1
-        if pulseTicks == 8 {
-            pulseTicks = 0
-            verb = verb.next
-        }
     }
 
     private func updatePulseTimer() {
@@ -73,8 +66,6 @@ public final class ActivityStore: ObservableObject {
         } else {
             pulseTimer?.invalidate()
             pulseTimer = nil
-            pulseTicks = 0
-            if verb != .thinking { verb = .thinking }
             if !pulse { pulse = true }
         }
     }

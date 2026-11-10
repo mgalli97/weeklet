@@ -9,10 +9,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private let store: UsageStore
     private let activity: ActivityStore
+    private let updates: UpdateController
     private let login = LoginItemController()
     private let menuFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
     private var observation: AnyCancellable?
     private var activityObservation: AnyCancellable?
+    private var updateObservation: AnyCancellable?
     private var countdownTimer: Timer?
     private var lastActivityStates: [ProviderActivity] = []
     private var wakeObservation: NSObjectProtocol?
@@ -20,11 +22,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let preview: Bool
     private let showOnLaunch: Bool
 
-    init(preview: Bool, showOnLaunch: Bool = false) {
+    init(preview: Bool, showOnLaunch: Bool = false, previousInstallFailed: Bool = false) {
         self.preview = preview
         self.showOnLaunch = showOnLaunch
         store = preview ? SampleData.store() : UsageStore()
         activity = preview ? SampleData.activity() : ActivityStore()
+        updates = UpdateController(preview: preview, previousInstallFailed: previousInstallFailed)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -40,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.animates = false
         popover.appearance = NSAppearance(named: .darkAqua)
         popover.delegate = self
-        let root = PopoverView(store: store, login: login, activity: activity, preview: preview, onContentChange: { [weak self] in
+        let root = PopoverView(store: store, login: login, activity: activity, updates: updates, preview: preview, onContentChange: { [weak self] in
             Task { @MainActor in self?.updatePopoverLayout() }
         })
         let hosting = NSHostingController(rootView: root.fixedSize())
@@ -48,15 +51,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         hosting.safeAreaRegions = []
         popover.contentViewController = hosting
         popover.contentSize = hosting.view.fittingSize
+        updateObservation = updates.objectWillChange.sink { [weak self] in
+            Task { @MainActor in self?.updatePopoverLayout() }
+        }
         observation = store.$states.sink { [weak self] states in
             guard let self else { return }
             // Published values arrive before the stored property changes.
             self.updateTitle(states)
             Task { @MainActor in self.updatePopoverLayout() }
         }
-        activityObservation = Publishers.CombineLatest3(activity.$states, activity.$pulse, activity.$verb).sink { [weak self] states, pulse, verb in
+        activityObservation = Publishers.CombineLatest(activity.$states, activity.$pulse).sink { [weak self] states, pulse in
             guard let self else { return }
-            self.updateTitle(self.store.states, activities: states, pulse: pulse, verb: verb)
+            self.updateTitle(self.store.states, activities: states, pulse: pulse)
             if states != self.lastActivityStates {
                 self.lastActivityStates = states
                 Task { @MainActor in self.updatePopoverLayout() }
@@ -80,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if showOnLaunch { Task { @MainActor in self.showPopover() } }
     }
 
-    private func updateTitle(_ states: [ProviderState], activities: [ProviderActivity]? = nil, pulse: Bool? = nil, verb: ActivityVerb? = nil) {
+    private func updateTitle(_ states: [ProviderState], activities: [ProviderActivity]? = nil, pulse: Bool? = nil) {
         guard let button = statusItem?.button else { return }
         let now = Date()
         let visible = states.filter(\.isVisible)
@@ -94,21 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         for (index, state) in visible.enumerated() {
             if index > 0 { title.append(NSAttributedString(string: "  |  ", attributes: attributes)) }
             let logo = NSTextAttachment()
-            logo.image = ProviderArtwork.menuImage(for: state.provider, appearance: button.effectiveAppearance)
-            logo.bounds = NSRect(x: 0, y: -4, width: 18, height: 18)
+            let working = (activities ?? activity.states).first { $0.provider == state.provider }
+            logo.image = ProviderArtwork.menuImage(for: state.provider, appearance: button.effectiveAppearance,
+                                                   activity: working, pulse: pulse ?? activity.pulse)
+            logo.bounds = NSRect(x: 0, y: -7, width: 23, height: 22)
             title.append(NSAttributedString(attachment: logo))
             title.append(NSAttributedString(string: " \(state.menuSummary(at: now))", attributes: attributes))
-            if let working = (activities ?? activity.states).first(where: { $0.provider == state.provider && $0.isWorking }) {
-                title.append(NSAttributedString(string: "  • ", attributes: [
-                    .font: menuFont,
-                    .foregroundColor: ProviderArtwork.activityTint(for: state.provider).withAlphaComponent((pulse ?? activity.pulse) ? 1 : 0.35)
-                ]))
-                let word = verb ?? activity.verb
-                let providerWord = state.provider == .codex ? word.next.next : word
-                title.append(NSAttributedString(string: working.menuLabel(verb: providerWord), attributes: [
-                    .font: menuFont, .foregroundColor: NSColor.white
-                ]))
-            }
         }
         button.attributedTitle = title
         let working = (activities ?? activity.states).filter { $0.isWorking && visibleProviders.contains($0.provider) }.map { state in
@@ -157,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         login.refresh()
         updateTitle(store.states)
         if !preview { store.refreshIfDue() }
+        updates.check()
         button.window?.contentView?.layoutSubtreeIfNeeded()
         if let view = popover.contentViewController?.view {
             view.layoutSubtreeIfNeeded()
@@ -176,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        updates.dismissNotice()
         popoverObservations.forEach(NotificationCenter.default.removeObserver)
         popoverObservations.removeAll()
     }
@@ -217,6 +216,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
 @MainActor
 enum SampleData {
+    static func menuSnapshot(to url: URL) throws {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
+        let label = NSMutableAttributedString(string: "")
+        for provider in Provider.allCases {
+            if provider == .codex { label.append(NSAttributedString(string: "  |  ", attributes: attributes)) }
+            let count = provider == .claude ? 1 : 2
+            let chats = (0..<count).map { WorkingChat(id: "sample-\($0)", title: nil) }
+            let attachment = NSTextAttachment()
+            attachment.image = ProviderArtwork.menuImage(for: provider, appearance: NSAppearance(named: .darkAqua)!,
+                                                          activity: ProviderActivity(provider: provider, chats: chats))
+            attachment.bounds = NSRect(x: 0, y: -7, width: 23, height: 22)
+            label.append(NSAttributedString(attachment: attachment))
+            label.append(NSAttributedString(string: provider == .claude ? " 79% h · 63% w" : " 32% w", attributes: attributes))
+        }
+        let size = NSSize(width: ceil(label.size().width) + 24, height: 32)
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: 64,
+                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { throw CocoaError(.fileWriteUnknown) }
+        bitmap.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.cgContext.scaleBy(x: 2, y: 2)
+        NSColor(calibratedWhite: 0.12, alpha: 1).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        label.draw(at: NSPoint(x: 12, y: (size.height - label.size().height) / 2))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+        try png.write(to: url)
+    }
+
     static func activity() -> ActivityStore {
         ActivityStore(states: [ProviderActivity(provider: .claude), ProviderActivity(provider: .codex, chats: [
             WorkingChat(id: "sample-build", title: "Build interface"),
@@ -238,7 +269,7 @@ enum SampleData {
 
     static func snapshot(to url: URL, errors: Bool = false, help: Bool = false, empty: Bool = false) throws {
         // ImageRenderer cannot render AppKit's menu control. Render its identical label only.
-        let view = PopoverView(store: store(errors: errors, empty: empty), login: LoginItemController(), activity: activity(), preview: true, staticSnapshot: true, helpPreview: help)
+        let view = PopoverView(store: store(errors: errors, empty: empty), login: LoginItemController(), activity: activity(), updates: UpdateController(preview: true), preview: true, staticSnapshot: true, helpPreview: help)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,

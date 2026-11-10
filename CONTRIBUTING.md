@@ -21,6 +21,8 @@ When an endpoint changes, first confirm its current contract using provider docu
 
 Do not add token refresh, credential persistence, browser-cookie access, login automation, analytics or a backend. Credential access must remain read-only, URLs fixed, TLS validation enabled and all redirects refused.
 
+App updates use their own unauthenticated GitHub session and pinned publisher key. Never pass provider credentials to the updater or change the key, permitted download hosts, archive checks or downgrade rules without a deliberate trust review. The owner's release key stays in Keychain, outside Git and GitHub Actions. See [publishing](docs/updates.md).
+
 ## Review checklist
 
 - Build and tests pass on macOS.
