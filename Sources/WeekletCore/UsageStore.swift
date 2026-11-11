@@ -10,6 +10,7 @@ public final class UsageStore: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var timer: Timer?
     private var lastRefresh: Date?
+    private var lastStarted: Date?
 
     public init(service: any UsageFetching = UsageService(),
                 clock: @escaping @Sendable () -> Date = { Date() },
@@ -46,19 +47,36 @@ public final class UsageStore: ObservableObject {
     }
 
     public func refreshIfDue() {
-        if lastRefresh.map({ clock().timeIntervalSince($0) >= 300 }) ?? true { refresh() }
+        let now = clock()
+        if lastRefresh.map({ now.timeIntervalSince($0) >= 300 }) ?? true { refresh() }
+        else {
+            // Opening the popover or waking can pick up a renewed session sooner.
+            // Healthy providers keep their normal five-minute cadence.
+            let recovering = states.filter {
+                ($0.failure == .expiredSession || ($0.failure == .credentialAccess && $0.hasConnected)) &&
+                ($0.lastAttempt.map { now.timeIntervalSince($0) >= 30 } ?? true)
+            }.map(\.provider)
+            if !recovering.isEmpty { refresh(manual: false, providers: Set(recovering)) }
+        }
     }
 
     func waitForRefresh() async { await refreshTask?.value }
 
     public func refresh(manual: Bool = false) {
+        refresh(manual: manual, providers: nil)
+    }
+
+    private func refresh(manual: Bool, providers: Set<Provider>?) {
         guard !isRefreshing else { return }
         let now = clock()
         // Manual refresh is throttled too, and never overrides a provider's Retry-After.
-        if let lastRefresh, now.timeIntervalSince(lastRefresh) < 5 { return }
-        let eligible = states.filter { $0.retryAt.map { $0 <= now } ?? true }.map(\.provider)
+        if let lastStarted, now.timeIntervalSince(lastStarted) < 5 { return }
+        let eligible = states.filter {
+            (providers?.contains($0.provider) ?? true) && ($0.retryAt.map { $0 <= now } ?? true)
+        }.map(\.provider)
         guard !eligible.isEmpty else { return }
-        lastRefresh = now
+        lastStarted = now
+        if providers == nil { lastRefresh = now }
         isRefreshing = true
         for index in states.indices where eligible.contains(states[index].provider) { states[index].isLoading = true }
         let service = service

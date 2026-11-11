@@ -94,7 +94,16 @@ public struct UsageService: UsageFetching, Sendable {
         do {
             let credential = try await credentials.read(for: provider, allowInteraction: allowInteraction)
             try Task.checkCancellation()
-            let payload = try await transport.getUsage(for: provider, credential: credential)
+            var payload = try await transport.getUsage(for: provider, credential: credential)
+            if provider == .claude, payload.status == 401 {
+                // Claude Code can rotate its credential while a request is in flight.
+                // Read once more without prompting; retry only a different access token.
+                let current = try await credentials.read(for: provider, allowInteraction: false)
+                try Task.checkCancellation()
+                if !credential.hasSameAccessToken(as: current) {
+                    payload = try await transport.getUsage(for: provider, credential: current)
+                }
+            }
             switch payload.status {
             case 200: return .success(try ProviderContracts.parse(payload.body, for: provider))
             case 401: return .failure(.expiredSession)

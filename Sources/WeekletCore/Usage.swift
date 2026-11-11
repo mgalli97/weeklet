@@ -75,7 +75,7 @@ public enum UsageFailure: Error, Sendable, Equatable {
         case .credentialAccess: "Credential access unavailable"
         case .insecureCredentials: "Credential file is not private"
         case .unsupportedAuth: "Subscription sign-in required"
-        case .expiredSession: "Session expired"
+        case .expiredSession: "Usage access expired"
         case .offline: "Offline"
         case .timeout: "Request timed out"
         case .rateLimited: "Refresh limit reached"
@@ -89,7 +89,11 @@ public enum UsageFailure: Error, Sendable, Equatable {
 
     public func detail(for provider: Provider) -> String {
         switch self {
-        case .notSignedIn, .unsupportedAuth, .expiredSession: provider.signInHint
+        case .notSignedIn, .unsupportedAuth: provider.signInHint
+        case .expiredSession:
+            provider == .claude
+                ? "Open Claude Code, then refresh. Sign in again only if Claude Code asks."
+                : provider.signInHint
         case .credentialAccess: "Unlock Keychain, then click Refresh to allow access."
         case .insecureCredentials: "Check ownership and permissions of the provider's credential file."
         case .offline, .timeout: "Check your connection. Another refresh will run automatically."
@@ -117,20 +121,26 @@ public struct ProviderState: Identifiable, Sendable, Equatable {
     public var isLoading: Bool
     public var lastAttempt: Date?
     public var retryAt: Date?
+    public private(set) var hasConnected: Bool
     public var id: Provider { provider }
 
     public init(provider: Provider, usage: UsageSnapshot? = nil, failure: UsageFailure? = nil) {
         self.provider = provider
         self.usage = usage
         self.failure = failure
+        hasConnected = usage != nil || failure == .expiredSession
         isLoading = false
     }
 
-    /// Authentication problems hide the provider; temporary usage failures remain visible.
+    /// An expired credential is still configured. Do not silently hide its recovery state.
     public var isVisible: Bool {
         switch failure {
-        case .notSignedIn, .credentialAccess, .insecureCredentials, .unsupportedAuth, .expiredSession:
+        case .notSignedIn, .insecureCredentials, .unsupportedAuth:
             false
+        case .credentialAccess:
+            hasConnected
+        case .expiredSession:
+            true
         case .offline, .timeout, .rateLimited, .serviceUnavailable, .invalidResponse, .weeklyUnavailable, .redirectBlocked:
             true
         case .cancelled, nil:
@@ -179,10 +189,16 @@ public struct ProviderState: Identifiable, Sendable, Equatable {
         switch result {
         case .success(let usage):
             self.usage = usage
+            hasConnected = true
             failure = nil
             retryAt = nil
         case .failure(let failure):
             self.failure = failure
+            switch failure {
+            case .expiredSession: hasConnected = true
+            case .notSignedIn, .unsupportedAuth, .insecureCredentials: hasConnected = false
+            default: break
+            }
             if failure.discardsPreviousUsage { usage = nil }
             if case .rateLimited(let until) = failure { retryAt = until }
             else { retryAt = nil }

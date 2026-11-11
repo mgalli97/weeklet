@@ -1,6 +1,6 @@
 # Validation record
 
-Checked on November 9–10, 2026. The project is a local first version, not a notarized distribution release.
+Checked on November 9–11, 2026. The project is a local first version, not a notarized distribution release.
 
 ## Environment
 
@@ -8,8 +8,8 @@ Checked on November 9–10, 2026. The project is a local first version, not a no
 | --- | --- |
 | Operating system | macOS 26.7.1 |
 | Architecture | Apple Silicon / arm64 |
-| Swift | Apple Swift 6.3.3 |
-| Developer tools | Standalone Apple Command Line Tools; full Xcode not installed |
+| Swift | Apple Swift 6.4.2 for 1.1.2; 6.3.3 for earlier checks |
+| Developer tools | Xcode available for 1.1.2; earlier checks used standalone Command Line Tools |
 | Minimum deployment target | macOS 14 |
 | Runtime packages | None |
 
@@ -17,12 +17,12 @@ Checked on November 9–10, 2026. The project is a local first version, not a no
 
 - **Optimized build:** `./scripts/build.sh` produces a native arm64 application bundle.
 - **Signing and metadata:** local ad-hoc signature verified with `codesign --verify --strict`; Info.plist passes `plutil -lint` and sets `LSUIElement = true`.
-- **Tests:** 95 tests in six Swift Testing suites pass. The test script configures the framework and runtime search paths required by this standalone Command Line Tools installation. No XCTest dependency is needed.
+- **Tests:** 102 tests in six Swift Testing suites pass under Xcode. The test script also configures the framework and runtime search paths when using standalone Command Line Tools, and handles macOS Bash with an empty optional-flag list. No XCTest dependency is needed.
 - **Contract tests:** legacy and structured Claude weekly and session meters; Codex weekly quotas in either window position; missing, null, ambiguous and malformed data; percentage units and date formats; session-only responses, independent reset freshness and labeled menu summaries.
 - **Credential tests:** expiry, API-key / ID-token rejection, redacted debug output, header injection, private read-only files, unsafe permissions, symlink refusal and storage-mode parsing. All fixtures are synthetic.
-- **Service and state tests:** fixed HTTPS GET requests, provider-specific headers, redirect delegate refusal, no auth retry or token renewal, HTTP and network errors, Retry-After, independent providers, overlapping refreshes, manual throttling, wake checks and stale values.
+- **Service and state tests:** fixed HTTPS GET requests, provider-specific headers, redirect delegate refusal, one changed-token-only Claude retry without token renewal, HTTP and network errors, Retry-After, independent providers, overlapping refreshes, manual throttling, wake checks and stale values.
 - **Low-allowance countdowns:** synthetic clocks cover independent weekly/session reset labels, the displayed 20% threshold and rounding on both sides, hour/minute boundaries, the final minute, unknown resets, failed/outdated quotas and waiting for fresh usage after reset. Local countdown formatting does not call a provider or read credentials.
-- **Provider visibility:** initial and loading states, authentication failures with previous usage, temporary failures without previous usage, cancellation, the zero-provider fallback, single-provider separators, and return after official-tool sign-in are covered with synthetic states and a controlled service. Hidden providers continue to be refreshed.
+- **Provider visibility:** initial and loading states, missing/unsafe authentication failures with previous usage, visible expired access and known-connection Keychain errors, temporary failures without previous usage, cancellation, the zero-provider fallback, single-provider separators, and return after official-tool sign-in are covered with synthetic states and a controlled service. Hidden providers continue to be refreshed.
 - **Update verification:** 17 isolated tests cover publisher signatures, modified payloads, metadata and archive limits, tampered digests, numeric version ordering, downgrade refusal, architecture/macOS requirements, fixed HTTPS hosts, traversal, duplicate paths, symlinks, malformed ZIP offsets, unsupported compression and private staging files. Release executables were checked for embedded personal build paths and passed code-signature verification.
 - **Published releases:** the standard Ubuntu publishing workflow independently verified and published 1.1.0 and 1.1.1 on GitHub Releases. No private signing key, provider credential or personal access token was uploaded to the workflow.
 - **Live update installation:** the real 1.1.0 installation displayed the 1.1.1 update banner. Clicking Update downloaded and authenticated the public GitHub package, prepared and replaced the bundle, and automatically reopened Weeklet. The installed 1.1.1 executable exactly matched the signed release archive and passed `codesign --verify --strict --deep`. The native popover showed live quotas and its installed-version footer after reopening.
@@ -31,7 +31,7 @@ Checked on November 9–10, 2026. The project is a local first version, not a no
 - **Activity tests:** lifecycle start/stop, final-answer and abort handling, sidechain exclusion, explicit-title selection, sanitized truncation, unchanged SQLite contents, stale activity expiry, Claude custom titles, coalesced checks, independent working counts, duplicate session IDs and completed-chat removal, numbered logo badges and inactive-pulse suppression use synthetic stores.
 - **Live local activity:** the metadata-only reader detected ongoing local work and found explicit chat titles in the installed Codex and Claude Code stores. The diagnostic printed only working/idle flags and title lengths, not titles or conversation content.
 - **Provider artwork:** the popover and menu bar use original provider-owned image files bundled locally. See `provider-artwork.md` for sources and checksums. The provider label is **Codex**.
-- **Interface rendering:** the real SwiftUI popover was rendered at 2× scale with sample data and visually reviewed. Documentation images include both providers, a hidden expired provider, Help and the no-provider setup state. The preview substitutes only the AppKit menu control's ellipsis label because ImageRenderer cannot render that control.
+- **Interface rendering:** the real SwiftUI popover was rendered at 2× scale with sample data and visually reviewed. Documentation images include both providers, visible expired access, Help and the no-provider setup state. The preview substitutes only the AppKit menu control's ellipsis label because ImageRenderer cannot render that control.
 - **Live desktop check:** the production app was opened with `--show` and left running without preview mode. Its actual native popover was inspected and showed current Claude Code and Codex percentages, available quotas, reset dates and an enabled Refresh button. The provider logos loaded with the build cache temporarily moved away, confirming the app uses its embedded resources.
 - **Repository:** source, original image assets and documentation are stored in the public `mgalli97/weeklet` GitHub repository. No credentials, real account response fixtures or generated build caches are committed.
 
@@ -56,3 +56,7 @@ Checked on November 9–10, 2026. The project is a local first version, not a no
 ```
 
 The first command uses only synthetic test data. Screenshot generation also uses sample data and needs a macOS desktop session. The final command makes real read-only provider requests and exits 1 if either provider cannot report a weekly quota. Add `--allow-keychain` only for an explicit foreground Keychain access dialog.
+
+## November 11 Claude recovery regression
+
+A read-only check confirmed expired local Claude access while the Codex quota request still succeeded. The production parser rejected the expired credential before networking; no credential was changed. The fix keeps that state visible instead of silently hiding the provider. Synthetic tests cover expiry with no network request, changed-token 401 recovery, no retry for an unchanged token, a strict one-retry limit, noninteractive rereads, expired replacement rejection, known-connection Keychain failure, sign-out clearing, and early popover recovery without healthy-provider requests or schedule drift. Waiting for natural multi-hour token rotation and observing official-tool renewal in this environment remain manual checks.

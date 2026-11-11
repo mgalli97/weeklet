@@ -23,6 +23,8 @@ public struct Credential: Sendable, CustomStringConvertible, CustomDebugStringCo
     func authorize(_ request: inout URLRequest) {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     }
+
+    func hasSameAccessToken(as other: Credential) -> Bool { accessToken == other.accessToken }
 }
 
 public protocol CredentialReading: Sendable {

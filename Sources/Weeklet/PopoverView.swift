@@ -130,7 +130,7 @@ struct PopoverView: View {
             ForEach(store.states) { state in
                 helpProvider(state)
             }
-            Text("Missing or expired? Sign in again, then refresh.")
+            Text("Open the official tool, then refresh. Sign in again only if it asks.")
                 .font(.system(size: 11)).foregroundStyle(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {

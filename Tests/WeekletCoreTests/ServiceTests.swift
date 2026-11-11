@@ -26,6 +26,32 @@ private actor TestTransport: UsageTransport {
     }
 }
 
+private actor RotatingCredentials: CredentialReading {
+    private let values: [Result<String, UsageFailure>]
+    private(set) var interactions: [Bool] = []
+    init(_ values: [Result<String, UsageFailure>]) { self.values = values }
+    func read(for provider: Provider, allowInteraction: Bool) async throws -> Credential {
+        let index = min(interactions.count, values.count - 1)
+        interactions.append(allowInteraction)
+        return try Credential(accessToken: values[index].get())
+    }
+}
+
+private actor RotatingTransport: UsageTransport {
+    private(set) var calls = 0
+    private(set) var receivedNewAccess = false
+    let alwaysReject: Bool
+    init(alwaysReject: Bool = false) { self.alwaysReject = alwaysReject }
+    func getUsage(for provider: Provider, credential: Credential) async throws -> HTTPPayload {
+        calls += 1
+        var request = URLRequest(url: provider.usageURL)
+        credential.authorize(&request)
+        if request.value(forHTTPHeaderField: "Authorization") == "Bearer new-access" { receivedNewAccess = true }
+        return HTTPPayload(status: calls == 1 || alwaysReject ? 401 : 200,
+                           body: Data(#"{"seven_day":{"utilization":35}}"#.utf8))
+    }
+}
+
 final class ServiceTests: @unchecked Sendable {
     @Test func testOnlyFixedHTTPSGETRequestsCarryCredentials() throws {
         let credential = try Credential(accessToken: "synthetic-access", accountID: "synthetic-account")
@@ -73,6 +99,51 @@ final class ServiceTests: @unchecked Sendable {
         checkEqual(result, .failure(.expiredSession))
         let count = await transport.calls
         checkEqual(count, 0)
+    }
+
+    @Test func testClaudeRotationDuringUnauthorizedRequestUsesNewTokenOnce() async {
+        let credentials = RotatingCredentials([.success("old-access"), .success("new-access")])
+        let transport = RotatingTransport()
+        let result = await UsageService(credentials: credentials, transport: transport).fetch(.claude, allowInteraction: true)
+        guard case .success(let usage) = result else { return recordFailure("Expected recovery after official-tool rotation") }
+        checkEqual(usage.weekly?.usedRounded, 35)
+        let observed1 = await transport.calls
+        checkEqual(observed1, 2)
+        let observed2 = await credentials.interactions
+        checkEqual(observed2, [true, false])
+        let receivedNewAccess = await transport.receivedNewAccess
+        checkEqual(receivedNewAccess, true)
+    }
+
+    @Test func testClaudeUnchangedRejectedTokenIsNotRetried() async {
+        let credentials = RotatingCredentials([.success("same-access")])
+        let transport = RotatingTransport()
+        let result = await UsageService(credentials: credentials, transport: transport).fetch(.claude)
+        checkEqual(result, .failure(.expiredSession))
+        let observed3 = await transport.calls
+        checkEqual(observed3, 1)
+        let observed4 = await credentials.interactions.count
+        checkEqual(observed4, 2)
+    }
+
+    @Test func testClaudeRotationRetryCannotLoop() async {
+        let credentials = RotatingCredentials([.success("old-access"), .success("new-access"), .success("third-access")])
+        let transport = RotatingTransport(alwaysReject: true)
+        let result = await UsageService(credentials: credentials, transport: transport).fetch(.claude)
+        checkEqual(result, .failure(.expiredSession))
+        let observed5 = await transport.calls
+        checkEqual(observed5, 2)
+        let observed6 = await credentials.interactions.count
+        checkEqual(observed6, 2)
+    }
+
+    @Test func testExpiredReplacementIsNeverSent() async {
+        let credentials = RotatingCredentials([.success("old-access"), .failure(.expiredSession)])
+        let transport = RotatingTransport()
+        let result = await UsageService(credentials: credentials, transport: transport).fetch(.claude)
+        checkEqual(result, .failure(.expiredSession))
+        let observed7 = await transport.calls
+        checkEqual(observed7, 1)
     }
 
     @Test func testServiceParsesSuccessfulBody() async {

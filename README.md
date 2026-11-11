@@ -41,7 +41,7 @@ Weeklet keeps two numbers close: how much of your **weekly Claude Code and Codex
 | **A light footprint** | Native status item and SwiftUI, cached local activity checks and no embedded browser. |
 | **Quiet activity** | A pulsing green badge above each active logo; multiple chats add a small count inside the badge. |
 | **Your existing sign-in** | Read-only access to the official tools' local credentials. No copied or renewed tokens. |
-| **Only connected providers** | Missing or expired sessions stay hidden; a Weeklet icon keeps setup and Help reachable. |
+| **Only connected providers** | Unconfigured providers stay hidden; expired access remains visible with recovery guidance. |
 | **Help when needed** | Options → Help shows sign-in commands, copy buttons and current recovery guidance. |
 | **Clear failure states** | Temporary network and provider errors remain visible. No invented numbers. |
 | **Your choice at login** | Optional launch at login using Apple's ServiceManagement framework. |
@@ -68,7 +68,9 @@ The build script produces an optimized application bundle with an original icon 
 
 Sign in to either official tool with your subscription account. If needed, run `claude auth login` for Claude Code or `codex login` for Codex in Terminal, then click **Refresh**. These commands are also available with copy buttons under **Options → Help**, next to Launch at login. Weeklet never executes them or starts an authentication flow itself. Claude's command is documented in its [CLI reference](https://code.claude.com/docs/en/cli-reference); Codex's command was verified with the installed official CLI's `login --help`.
 
-Only providers with a usable subscription sign-in appear in the menu bar and quota list. Missing, expired, unsupported or inaccessible credentials hide that provider; **Help** keeps its latest error and recovery steps available. Temporary usage failures, such as an offline connection, leave a configured provider visible with a dash and its error. Hidden providers are still checked on the normal refresh schedule, so they return after signing in without restarting Weeklet. If none are ready, Weeklet shows its own icon and a compact [setup view](docs/images/no-providers.png); the [single-provider preview](docs/images/session-expired.png) shows Codex while a sample expired Claude session is hidden.
+Unconfigured, unsupported or unsafe sign-ins stay hidden. An expired access token remains visible with dashes and **Usage access expired**, instead of looking like a sign-out. Open Claude Code so it can renew its own session, then refresh Weeklet; sign in again only if the official tool asks. Keychain access loss also remains visible for a provider that connected during this run. **Help** keeps recovery steps available. Temporary usage failures, such as an offline connection, show an explicit error without invented percentages. Hidden providers are still checked every five minutes. If none are configured, a Weeklet icon keeps the compact [setup view](docs/images/no-providers.png) reachable. The [expired-access preview](docs/images/session-expired.png) shows the recovery state with synthetic data.
+
+Opening the popover or waking the Mac rechecks expired or previously connected blocked credentials after at least 30 seconds, without rechecking healthy providers or postponing their normal five-minute schedule. No extra timer is added. If Claude Code rotates its access token during an HTTP 401 response, Weeklet rereads it once and retries only if it changed; it never refreshes, saves or modifies a token. A locally expired token is never sent to the provider. Claude Desktop chats can continue using a separate live session while the saved Claude Code credential is expired; Weeklet cannot renew that saved credential. If opening Claude Code does not update it, run `claude auth login` in the official CLI and refresh Weeklet.
 
 For launch at login, move the app to `/Applications` or `~/Applications`, then enable **Options → Launch at login**. macOS may request approval in **System Settings → General → Login Items**. The option uses the operating system's actual registration state; Weeklet does not enable it automatically.
 
@@ -119,7 +121,7 @@ The owner publishes with `./scripts/release.sh --publish`: build and sign locall
 
 ## Verification status
 
-The optimized Apple Silicon app builds on **macOS 26.7.1 with Swift 6.3.3**, using standalone Command Line Tools. **95 isolated tests pass** across contracts, credentials, transport behavior, refresh state and update verification.
+The optimized Apple Silicon app has been verified with standalone Command Line Tools (Swift 6.3.3) and Xcode (Swift 6.4.2). **102 isolated tests pass** across contracts, credentials, transport behavior, refresh state and update verification.
 
 Real read-only usage requests succeeded for both Claude Code and Codex. The existing Claude credential initially expired; after renewing it in the official tool, the compiled app successfully reported its weekly quota without changing or refreshing any token itself. The real popover was inspected with both live quotas. Login-item registration, keyboard and VoiceOver behavior, and Intel execution still need manual verification. See the full [validation record](docs/validation.md).
 

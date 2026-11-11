@@ -82,7 +82,7 @@ final class StoreTests {
         await store.waitForRefresh()
         checkEqual(store.states[0].failure, .expiredSession)
         checkNotNil(store.states[1].usage)
-        checkEqual(store.menuTitle, "X 75% w")
+        checkEqual(store.menuTitle, "C — h · — w  |  X 75% w")
     }
 
     @Test @MainActor func testManualRefreshRespectsProviderBackoff() async {
@@ -210,14 +210,67 @@ final class StoreTests {
         checkEqual(state.isVisible, true)
     }
 
-    @Test func testAuthenticationFailuresHideProvidersEvenWithPreviousUsage() throws {
+    @Test func testMissingUnsupportedAndUnsafeProvidersStayHidden() throws {
         let usage = try QuotaUsage(usedPercent: 25, resetsAt: nil, fetchedAt: now)
         for provider in Provider.allCases {
-            for failure in [UsageFailure.notSignedIn, .expiredSession, .unsupportedAuth, .credentialAccess, .insecureCredentials] {
+            for failure in [UsageFailure.notSignedIn, .unsupportedAuth, .insecureCredentials] {
                 let state = ProviderState(provider: provider, usage: UsageSnapshot(weekly: usage), failure: failure)
                 checkFalse(state.isVisible)
             }
         }
+    }
+
+    @Test func testExpiredAccessStaysVisibleWithoutPresentingOldQuota() throws {
+        let usage = try QuotaUsage(usedPercent: 25, resetsAt: nil, fetchedAt: now)
+        var state = ProviderState(provider: .claude, usage: UsageSnapshot(weekly: usage))
+        state.receive(.failure(.expiredSession), at: now)
+        checkEqual(state.isVisible, true)
+        checkNil(state.usage)
+        checkEqual(state.menuSummary(at: now), "— h · — w")
+        checkEqual(ProviderState(provider: .claude, failure: .expiredSession).isVisible, true)
+        checkFalse(UsageFailure.expiredSession.detail(for: .claude).contains("Run claude auth login"))
+    }
+
+    @Test func testKeychainAccessLossKeepsPreviouslyConnectedProviderVisible() throws {
+        var state = ProviderState(provider: .claude)
+        state.receive(.failure(.credentialAccess), at: now)
+        checkFalse(state.isVisible)
+        state.receive(.success(UsageSnapshot(weekly: try QuotaUsage(usedPercent: 25, resetsAt: nil, fetchedAt: now))), at: now)
+        state.receive(.failure(.credentialAccess), at: now)
+        checkEqual(state.isVisible, true)
+        checkNil(state.usage)
+        state.receive(.failure(.notSignedIn), at: now)
+        checkFalse(state.isVisible)
+        checkFalse(state.hasConnected)
+    }
+
+    @Test @MainActor func testPopoverRecoveryDoesNotRefreshHealthyProviderOrDelayNormalPoll() async {
+        let clock = TestClock()
+        let service = TestService(clock: clock, claudeFailure: .expiredSession)
+        let store = UsageStore(service: service, clock: { clock.now() })
+        store.refreshIfDue()
+        await store.waitForRefresh()
+        clock.advance(29)
+        store.refreshIfDue()
+        await store.waitForRefresh()
+        let observed1 = await service.calls.count
+        checkEqual(observed1, 2)
+        await service.setClaudeFailure(nil)
+        clock.advance(1)
+        store.refreshIfDue()
+        await store.waitForRefresh()
+        checkNil(store.states[0].failure)
+        let observed2 = await service.calls.filter { $0 == .claude }.count
+        checkEqual(observed2, 2)
+        let observed3 = await service.calls.filter { $0 == .codex }.count
+        checkEqual(observed3, 1)
+        clock.advance(270)
+        store.refreshIfDue()
+        await store.waitForRefresh()
+        let observed4 = await service.calls.filter { $0 == .claude }.count
+        checkEqual(observed4, 3)
+        let observed5 = await service.calls.filter { $0 == .codex }.count
+        checkEqual(observed5, 2)
     }
 
     @Test func testUsageFailuresKeepConfiguredProvidersVisible() throws {
@@ -270,6 +323,6 @@ final class StoreTests {
         clock.advance(300)
         store.refresh()
         await store.waitForRefresh()
-        checkEqual(store.visibleStates.map(\.provider), [.codex])
+        checkEqual(store.visibleStates.map(\.provider), [.claude, .codex])
     }
 }
